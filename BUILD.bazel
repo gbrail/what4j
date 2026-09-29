@@ -1,0 +1,17 @@
+load("@rules_rhino//babel:defs.bzl", "babel_preprocess", "npm_install")
+
+npm_install(
+    name = "babel_deps",
+    package_json = "//babel:package.json",
+    package_lock = "//babel:package-lock.json",
+)
+
+babel_preprocess(
+    name = "wpt_source",
+    srcs = glob([
+        "wpt/resources/testharness.js",
+    ]),
+    config = "//babel:babel.config.json",
+    npm = ":babel_deps",
+    visibility = ["//visibility:public"],
+)

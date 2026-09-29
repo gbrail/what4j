@@ -1,0 +1,26 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_rhino//java:defs.bzl", "junit5_test")
+
+java_library(
+    name = "testrunner",
+    srcs = glob(["src/**/*.java"]),
+    deps = [
+        "@bazel_tools//tools/java/runfiles",
+        "@rhino//rhino",
+    ],
+)
+
+junit5_test(
+    name = "smoke_test",
+    srcs = ["test/org/brail/what4j/testrunner/tests/SmokeTest.java"],
+    data = [
+        "//:wpt_source",
+    ],
+    test_class = "org.brail.what4j.testrunner.tests.SmokeTest",
+    deps = [
+        ":testrunner",
+        "@bazel_tools//tools/java/runfiles",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@rhino//rhino",
+    ],
+)

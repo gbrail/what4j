@@ -1,0 +1,58 @@
+module(
+    name = "what4j",
+    version = "0.0.1-SNAPSHOT",
+)
+
+bazel_dep(name = "rules_java", version = "9.7.0")
+bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "rhino", version = "2.0.0-SNAPSHOT")
+bazel_dep(name = "rules_rhino", version = "0.0.1")
+
+#local_path_override(
+#    module_name = "rhino",
+#    path = "../rhino",
+#)
+
+#local_path_override(
+#    module_name = "rules_rhino",
+#    path = "../rules_rhino",
+#)
+
+git_override(
+    module_name = "rules_rhino",
+    commit = "8fe06dc9cc894cb62522fc0c0b02bd8a23ae5482",
+    remote = "https://github.com/gbrail/rules_rhino.git",
+)
+
+git_override(
+    module_name = "rhino",
+    commit = "f8332fd422fba673392f93b4dfd457700c3c7f47",
+    remote = "https://github.com/mozilla/rhino.git",
+)
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+# Whenever you change this you must run:
+#    REPIN=1 bazel run @maven//:pin
+maven.install(
+    artifacts = [
+        "info.picocli:picocli:4.7.7",
+        "com.fasterxml.jackson.core:jackson-databind:2.21.0",
+        "org.junit.jupiter:junit-jupiter:5.10.3",
+        "org.junit.jupiter:junit-jupiter-api:5.10.3",
+        "org.junit.jupiter:junit-jupiter-engine:5.10.3",
+        "org.junit.jupiter:junit-jupiter-params:5.10.3",
+        "org.junit.platform:junit-platform-launcher:1.10.3",
+        "org.junit.platform:junit-platform-console:1.10.3",
+        "org.junit.platform:junit-platform-console-standalone:1.10.3",
+        "org.junit.platform:junit-platform-runner:1.10.3",
+        "org.junit.platform:junit-platform-reporting:1.10.3",
+        "org.hamcrest:hamcrest:3.0",
+    ],
+    known_contributing_modules = ["protobuf"],
+    lock_file = "//:maven_install.json",
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)
+use_repo(maven, "maven")

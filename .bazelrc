@@ -1,0 +1,35 @@
+build --java_language_version=25
+build --java_runtime_version=remotejdk_25
+
+# Forward PATH so that host commands (like node, python) can be found in genrules
+build --action_env=PATH
+
+build --javacopt="-encoding UTF-8"
+
+# Set up Errorprone for success
+build --javacopt="-Xep:JUnit4TestNotRun:OFF
+build --javacopt="-Xep:ReturnValueIgnored:OFF"
+build --javacopt="-Xep:IdentityBinaryExpression:OFF"
+build --javacopt="-Xep:ClassInitializationDeadlock:OFF"
+build --javacopt="-Xep:EffectivelyPrivate:OFF"
+build --javacopt="-Xep:BooleanLiteral:OFF"
+build --javacopt="-Xep:AssignmentExpression:OFF"
+build --javacopt="-Xep:DuplicateBranches:OFF"
+build --javacopt="-Xep:PatternMatchingInstanceof:OFF"
+build --javacopt="-Xep:StatementSwitchToExpressionSwitch:OFF"
+build --javacopt="-Xep:RedundantControlFlow:OFF"
+build --javacopt="-Xep:AlmostJavadoc:OFF"
+build --javacopt="-Xep:EmptyBlockTag:OFF"
+build --javacopt="-Xep:EscapedEntity:OFF"
+build --javacopt="-Xep:MissingSummary:OFF"
+build --javacopt="-Xep:InvalidBlockTag:OFF"
+build --javacopt="-Xep:NotJavadoc:OFF"
+build --javacopt="-Xep:UnicodeEscape:OFF"
+build --javacopt="-Xep:EmptyCatch:OFF"
+build --javacopt="-Xep:LabelledBreakTarget:OFF"
+build --javacopt="-Xep:JavaUtilDate:OFF"
+build --javacopt="-Xep:InlineMeSuggester:OFF"
+build --javacopt="-Xep:UnusedVariable:OFF"
+build --javacopt="-Xep:AnnotateFormatMethod:OFF"
+
+try-import %workspace%/.bazelrc.user
