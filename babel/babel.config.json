@@ -1,0 +1,14 @@
+{
+  "parserOpts": {
+    "strictMode": false
+  },
+  "plugins": [
+    "@babel/plugin-transform-block-scoping",
+    "babel-plugin-transform-async-to-promises",
+    "@babel/plugin-transform-class-properties",
+    "@babel/plugin-transform-classes",
+    "@babel/plugin-transform-object-rest-spread",
+    "@babel/plugin-transform-parameters",
+    "@babel/plugin-transform-spread"
+  ]
+}
