@@ -7,10 +7,15 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.function.BiConsumer;
+
+import org.mozilla.javascript.Callable;
+import org.mozilla.javascript.CompoundOperationMap;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Function;
 import org.mozilla.javascript.LambdaFunction;
+import org.mozilla.javascript.NativeConsole;
 import org.mozilla.javascript.RhinoException;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
@@ -20,25 +25,25 @@ import org.mozilla.javascript.VarScope;
 public class WPTTestLauncher {
   static final String TEST_BASE = "../testcases";
 
-  private final StringBuilder testHarness;
-  private BiConsumer<Context, VarScope> setupCallback;
-
-  public static WPTTestLauncher newLauncher() throws IOException {
-    // Build a test script that includes the standard harness and all of our
-    // code to link it to Java.
-    String harness = Utils.readFile("wpt/resources/testharness.js");
-    StringBuilder completeTestScript = new StringBuilder(harness);
-
-    completeTestScript.append(
-        """
+  private static final String HARNESS_PREFIX = """
+  function __h(self, __resultCallback, __completionTracker) {
+  """;
+  private static final String HARNESS_SUFFIX = """
     setup(null, {
       debug: false
     });
-    add_result_callback(__testResultTracker);
-    add_completion_callback(__testCompletionTracker);
-    """);
+    add_result_callback(__resultCallback);
+    add_completion_callback(__completionTracker);
+    console.log("Going to call the script now");
+  }; __h;
+  """;
 
-    return new WPTTestLauncher(completeTestScript);
+  private final StringBuilder harnessSource;
+  private BiConsumer<Context, VarScope> setupCallback;
+
+  public static WPTTestLauncher newLauncher() throws IOException {
+    var s = new StringBuilder(Utils.readFile("wpt/resources/testharness.js"));
+    return new WPTTestLauncher(s);
   }
 
   public void setSetupCallback(BiConsumer<Context, VarScope> callback) {
@@ -46,24 +51,25 @@ public class WPTTestLauncher {
   }
 
   public void addResource(String path) throws IOException {
-    testHarness.append(Utils.readFile("wpt/resource/" + path));
+    harnessSource.append(Utils.readFile("wpt/resource/" + path));
   }
 
   private WPTTestLauncher(StringBuilder script) {
-    this.testHarness = script;
+    this.harnessSource = script;
   }
 
   private VarScope initializeScope(Context cx, ResultTracker tracker) throws IOException {
-    var scope = cx.initStandardObjects();
+    var scope = cx.initSafeStandardObjects();
     //MinimalFetch.init(cx, scope);
-    // Parts of the test framework use "self" to find the global scope
-    scope.put("self", scope, scope);
-    // Some tests use the console
-    //scope.put("console", scope, MinimalConsole.init(cx, scope));
+    NativeConsole.init(scope, false, (_, _, _level, args, _stack) -> {
+      if (args.length == 1) {
+        System.out.println(args[0].toString());
+      } else if (args.length > 1) {
+        System.out.println(String.join(" ", Arrays.stream(args).map(Object::toString).toArray(String[]::new)));
+      }
+    });
     // Tools used by the test framework to hook into our stuff
     TestUtils.init(cx, scope);
-    scope.put("__testResultTracker", scope, tracker.getResultCallback(scope));
-    scope.put("__testCompletionTracker", scope, tracker.getCompletionCallback(scope));
     scope.put("__testDefer", scope, new LambdaFunction(scope, "defer", 1, WPTTestLauncher::defer));
     if (setupCallback != null) {
       setupCallback.accept(cx, scope);
@@ -82,19 +88,33 @@ public class WPTTestLauncher {
   }
 
   public ResultTracker runScript(Context cx, CharSequence script) throws IOException {
+    var completeTestScript = new StringBuilder();
+    completeTestScript.append(HARNESS_PREFIX);
+    completeTestScript.append(harnessSource);
+    completeTestScript.append(script);
+    completeTestScript.append(HARNESS_SUFFIX);
+
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
     // For the harness to actually work, build the whole harness and our
     // test script into a big script and run it all together.
     try {
-      cx.evaluateString(scope, String.valueOf(testHarness) + script, "testharness.js", 1, null);
+      var harnessResult = cx.evaluateString(scope, completeTestScript.toString(), "testharness.js", 1, null);
+      if (!(harnessResult instanceof Callable c)) {
+        throw ScriptRuntime.throwError(cx, scope, "Harness initialization error");
+      }
+      c.call(cx, scope, scope, new Object[]{scope,
+              tracker.getResultCallback(scope),
+              tracker.getCompletionCallback(scope)
+      });
     } catch (RhinoException re) {
       tracker.trackScriptException(re);
     }
     return tracker;
   }
 
+  /*
   public ResultTracker runFile(Context cx, String path) throws IOException {
     var tracker = new ResultTracker();
     var scope = initializeScope(cx, tracker);
@@ -114,6 +134,7 @@ public class WPTTestLauncher {
     }
     return tracker;
   }
+   */
 
   public static Object[] findTests(String path) {
     return findTests(path, new String[] {});
