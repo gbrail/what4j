@@ -30,9 +30,13 @@ public class Utils {
   }
 
   public static String readFile(String pathStr) throws IOException {
-    var p = Path.of("_main", pathStr);
+    // Bazel uses forward slashes for stuff...
+    var p = "_main/" + pathStr;
     var bazelPath = Runfiles.preload().withSourceRepository(AutoBazelRepository_Utils.NAME)
-                    .rlocation(p.toString());
+                    .rlocation(p);
+    if (bazelPath == null) {
+      throw new IOException("Bazel runfile not found: " + p);
+    }
     try (FileReader rdr = new FileReader(bazelPath, StandardCharsets.UTF_8)) {
       StringBuilder buf = new StringBuilder();
       char[] buffer = new char[4096];

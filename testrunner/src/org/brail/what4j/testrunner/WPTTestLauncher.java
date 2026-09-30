@@ -30,7 +30,7 @@ public class WPTTestLauncher {
   """;
   private static final String HARNESS_SUFFIX = """
     setup(null, {
-      debug: false
+      debug: true
     });
     add_result_callback(__resultCallback);
     add_completion_callback(__completionTracker);
