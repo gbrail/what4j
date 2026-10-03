@@ -11,31 +11,32 @@ import java.util.Arrays;
 import java.util.function.BiConsumer;
 
 import org.mozilla.javascript.Callable;
-import org.mozilla.javascript.CompoundOperationMap;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Function;
 import org.mozilla.javascript.LambdaFunction;
 import org.mozilla.javascript.NativeConsole;
 import org.mozilla.javascript.RhinoException;
 import org.mozilla.javascript.ScriptRuntime;
-import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.VarScope;
 
 public class WPTTestLauncher {
   static final String TEST_BASE = "../testcases";
 
-  private static final String HARNESS_PREFIX = """
-  function __h(self, __resultCallback, __completionTracker) {
+  private static final String PRE_HARNESS_SCRIPT =
+      """
+  var self = globalThis;
   """;
-  private static final String HARNESS_SUFFIX = """
-    setup(null, {
-      debug: true
-    });
-    add_result_callback(__resultCallback);
-    add_completion_callback(__completionTracker);
-    console.log("Going to call the script now");
-  }; __h;
+
+  private static final String POST_HARNESS_SCRIPT =
+      """
+    function __post_harness(resultCallback, completionTracker) {
+      setup(null, {
+        debug: false
+      });
+      add_result_callback(resultCallback);
+      add_completion_callback(completionTracker);
+    }; __post_harness;
   """;
 
   private final StringBuilder harnessSource;
@@ -60,14 +61,18 @@ public class WPTTestLauncher {
 
   private VarScope initializeScope(Context cx, ResultTracker tracker) throws IOException {
     var scope = cx.initSafeStandardObjects();
-    //MinimalFetch.init(cx, scope);
-    NativeConsole.init(scope, false, (_, _, _level, args, _stack) -> {
-      if (args.length == 1) {
-        System.out.println(args[0].toString());
-      } else if (args.length > 1) {
-        System.out.println(String.join(" ", Arrays.stream(args).map(Object::toString).toArray(String[]::new)));
-      }
-    });
+    MinimalFetch.init(cx, scope);
+    NativeConsole.init(
+        scope,
+        false,
+        (_, _, _level, args, _stack) -> {
+          if (args.length == 1) {
+            System.out.println(args[0].toString());
+          } else if (args.length > 1) {
+            System.out.println(
+                String.join(" ", Arrays.stream(args).map(Object::toString).toArray(String[]::new)));
+          }
+        });
     // Tools used by the test framework to hook into our stuff
     TestUtils.init(cx, scope);
     scope.put("__testDefer", scope, new LambdaFunction(scope, "defer", 1, WPTTestLauncher::defer));
@@ -88,29 +93,29 @@ public class WPTTestLauncher {
   }
 
   public ResultTracker runScript(Context cx, CharSequence script) throws IOException {
-    var completeTestScript = new StringBuilder();
-    completeTestScript.append(HARNESS_PREFIX);
-    completeTestScript.append(harnessSource);
-    completeTestScript.append(script);
-    completeTestScript.append(HARNESS_SUFFIX);
-
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
-    // For the harness to actually work, build the whole harness and our
-    // test script into a big script and run it all together.
+
+    cx.suspendMicrotaskProcessing();
+    cx.evaluateString(scope, PRE_HARNESS_SCRIPT, "pre_harness.js", 1, null);
+    cx.evaluateString(scope, harnessSource.toString(), "testharness.js", 1, null);
+    var setup =
+        (Callable) cx.evaluateString(scope, POST_HARNESS_SCRIPT, "post_harness.js", 1, null);
+    setup.call(
+        cx,
+        scope,
+        null,
+        new Object[] {tracker.getResultCallback(scope), tracker.getCompletionCallback(scope)});
+
     try {
-      var harnessResult = cx.evaluateString(scope, completeTestScript.toString(), "testharness.js", 1, null);
-      if (!(harnessResult instanceof Callable c)) {
-        throw ScriptRuntime.throwError(cx, scope, "Harness initialization error");
-      }
-      c.call(cx, scope, scope, new Object[]{scope,
-              tracker.getResultCallback(scope),
-              tracker.getCompletionCallback(scope)
-      });
-    } catch (RhinoException re) {
-      tracker.trackScriptException(re);
+      cx.evaluateString(scope, script.toString(), "test.js", 1, null);
+    } catch (RhinoException e) {
+      tracker.trackScriptException(e);
     }
+
+    cx.resumeMicrotaskProcessing();
+
     return tracker;
   }
 

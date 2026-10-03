@@ -43,7 +43,7 @@ public class SmokeTest {
 
     assertTrue(results.success(), results.getFailureReason());
   }
-/*
+
   @Test
   public void failingTest() throws IOException {
     var results =
@@ -57,7 +57,7 @@ public class SmokeTest {
                       assert_true(false);
                     }, "Failing test function");
               """);
-    assertFalse(results.success());
+    assertFalse(results.success(), results.getFailureReason());
   }
 
   @Test
@@ -140,7 +140,7 @@ public class SmokeTest {
             """
                             promise_test(() => {
                               return new Promise((resolve, reject) => {
-                                fetch("src/main/resources/test.json")
+                                fetch("testrunner/testdata/test.json")
                                   .then((res) => res.json())
                                   .then((o) => {
                                     assert_equals(o.foo, 123);
@@ -159,9 +159,9 @@ public class SmokeTest {
             cx,
             """
                             promise_test(() => {
-                              __setFetchBase('src');
+                              __setFetchBase('testrunner/testdata');
                               return new Promise((resolve, reject) => {
-                                fetch("main/resources/test.json")
+                                fetch("test.json")
                                   .then((res) => res.json())
                                   .then((o) => {
                                     assert_equals(o.foo, 123);
@@ -171,5 +171,5 @@ public class SmokeTest {
                             });
                             """);
     assertTrue(results.success(), results.getFailureReason());
-  }*/
+  }
 }

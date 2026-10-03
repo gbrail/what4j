@@ -1,4 +1,5 @@
 load("@rules_rhino//babel:defs.bzl", "babel_preprocess", "npm_install")
+load("@rules_rhino//java:defs.bzl", "google_java_format_check", "google_java_format_fix")
 
 npm_install(
     name = "babel_deps",
@@ -14,4 +15,13 @@ babel_preprocess(
     config = "//babel:babel.config.json",
     npm = ":babel_deps",
     visibility = ["//visibility:public"],
+)
+
+google_java_format_check(
+    name = "checkformat",
+    files = glob(["**/*.java"]),
+)
+
+google_java_format_fix(
+    name = "fixformat",
 )

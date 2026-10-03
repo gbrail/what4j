@@ -1,6 +1,16 @@
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_rhino//java:defs.bzl", "junit5_test")
 
+filegroup(
+    name = "helper_scripts",
+    data = glob(["scripts/*.js"]),
+)
+
+filegroup(
+    name = "testdata",
+    data = glob(["testdata/**"]),
+)
+
 java_library(
     name = "testrunner",
     srcs = glob(["src/**/*.java"]),
@@ -14,6 +24,8 @@ junit5_test(
     name = "smoke_test",
     srcs = ["test/org/brail/what4j/testrunner/tests/SmokeTest.java"],
     data = [
+        ":helper_scripts",
+        ":testdata",
         "//:wpt_source",
     ],
     test_class = "org.brail.what4j.testrunner.tests.SmokeTest",
