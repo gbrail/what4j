@@ -9,6 +9,7 @@
     "com.google.j2objc:j2objc-annotations": 2003271689,
     "info.picocli:picocli": 600678140,
     "org.hamcrest:hamcrest": 1547523135,
+    "org.jsoup:jsoup": -1622565922,
     "org.junit.jupiter:junit-jupiter": 893755136,
     "org.junit.jupiter:junit-jupiter-api": 1691365907,
     "org.junit.jupiter:junit-jupiter-engine": -1731602569,
@@ -37,6 +38,7 @@
     "org.checkerframework:checker-qual": -1533199059,
     "org.hamcrest:hamcrest": 1282317766,
     "org.hamcrest:hamcrest-core": 649657847,
+    "org.jsoup:jsoup": 1818671647,
     "org.junit.jupiter:junit-jupiter": -1091544314,
     "org.junit.jupiter:junit-jupiter-api": 1023364856,
     "org.junit.jupiter:junit-jupiter-engine": -1961546222,
@@ -151,6 +153,12 @@
         "jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9"
       },
       "version": "1.3"
+    },
+    "org.jsoup:jsoup": {
+      "shasums": {
+        "jar": "e9d8c856856680427f096d156f02a414289985c930998fcb519ce5be39b42003"
+      },
+      "version": "1.23.2"
     },
     "org.junit.jupiter:junit-jupiter": {
       "shasums": {
@@ -491,6 +499,15 @@
       "org.hamcrest.core",
       "org.hamcrest.internal"
     ],
+    "org.jsoup:jsoup": [
+      "org.jsoup",
+      "org.jsoup.helper",
+      "org.jsoup.internal",
+      "org.jsoup.nodes",
+      "org.jsoup.parser",
+      "org.jsoup.safety",
+      "org.jsoup.select"
+    ],
     "org.junit.jupiter:junit-jupiter-api": [
       "org.junit.jupiter.api",
       "org.junit.jupiter.api.condition",
@@ -723,6 +740,7 @@
       "org.checkerframework:checker-qual",
       "org.hamcrest:hamcrest",
       "org.hamcrest:hamcrest-core",
+      "org.jsoup:jsoup",
       "org.junit.jupiter:junit-jupiter",
       "org.junit.jupiter:junit-jupiter-api",
       "org.junit.jupiter:junit-jupiter-engine",

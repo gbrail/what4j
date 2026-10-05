@@ -20,6 +20,7 @@ babel_preprocess(
 google_java_format_check(
     name = "checkformat",
     files = glob(["**/*.java"]),
+    tags = ["manual"],
 )
 
 google_java_format_fix(

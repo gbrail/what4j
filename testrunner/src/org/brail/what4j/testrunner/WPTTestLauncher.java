@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.function.BiConsumer;
 
+import org.jsoup.Jsoup;
 import org.mozilla.javascript.Callable;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Function;
@@ -92,7 +93,7 @@ public class WPTTestLauncher {
     return Undefined.instance;
   }
 
-  public ResultTracker runScript(Context cx, CharSequence script) throws IOException {
+  public ResultTracker runScript(Context cx, String script) throws IOException {
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
@@ -109,7 +110,7 @@ public class WPTTestLauncher {
         new Object[] {tracker.getResultCallback(scope), tracker.getCompletionCallback(scope)});
 
     try {
-      cx.evaluateString(scope, script.toString(), "test.js", 1, null);
+      cx.evaluateString(scope, script, "test.js", 1, null);
     } catch (RhinoException e) {
       tracker.trackScriptException(e);
     }
@@ -117,6 +118,31 @@ public class WPTTestLauncher {
     cx.resumeMicrotaskProcessing();
 
     return tracker;
+  }
+
+  public ResultTracker runHtml(Context cx, String htmlSource) throws IOException {
+    var doc = Jsoup.parse(htmlSource);
+    var scripts = doc.select("script");
+    for (var script : scripts) {
+      var src = script.attr("src");
+      if (!src.isEmpty()) {
+        if (!"/resources/testharness.js".equals(src)
+            && !"/resources/testharnessreport.js".equals(src)) {
+          var tracker = new ResultTracker();
+          tracker.trackException(new AssertionError("Unknown script source: " + src));
+          return tracker;
+        }
+      } else {
+        var scriptSrc = script.data();
+        if (scriptSrc.isEmpty()) {
+          var tracker = new ResultTracker();
+          tracker.trackException(new AssertionError("No test script in script element"));
+          return tracker;
+        }
+        return runScript(cx, scriptSrc);
+      }
+    }
+    throw new AssertionError("No scripts in HTML");
   }
 
   /*

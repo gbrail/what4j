@@ -3,6 +3,8 @@ package org.brail.what4j.testrunner.tests;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+
+import org.brail.what4j.testrunner.Utils;
 import org.brail.what4j.testrunner.WPTTestLauncher;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -171,5 +173,17 @@ public class SmokeTest {
                             });
                             """);
     assertTrue(results.success(), results.getFailureReason());
+  }
+
+  @Test
+  public void testHtml() throws IOException {
+    var results = launcher.runHtml(cx, Utils.readFile("testrunner/test/html/html-test.html"));
+    assertTrue(results.success(), results.getFailureReason());
+  }
+
+  @Test
+  public void testHtmlFail() throws IOException {
+    var results = launcher.runHtml(cx, Utils.readFile("testrunner/test/html/html-test-fail.html"));
+    assertFalse(results.success());
   }
 }

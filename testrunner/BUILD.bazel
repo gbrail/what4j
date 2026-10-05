@@ -8,7 +8,10 @@ filegroup(
 
 filegroup(
     name = "testdata",
-    data = glob(["testdata/**"]),
+    data = glob([
+        "testdata/**",
+        "test/html/**",
+    ]),
 )
 
 java_library(
@@ -16,6 +19,7 @@ java_library(
     srcs = glob(["src/**/*.java"]),
     deps = [
         "@bazel_tools//tools/java/runfiles",
+        "@maven//:org_jsoup_jsoup",
         "@rhino//rhino",
     ],
 )
