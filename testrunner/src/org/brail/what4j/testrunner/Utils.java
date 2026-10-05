@@ -36,7 +36,11 @@ public class Utils {
     if (bazelPath == null) {
       throw new IOException("Bazel runfile not found: " + p);
     }
-    try (FileReader rdr = new FileReader(bazelPath, StandardCharsets.UTF_8)) {
+    return readRawFilePath(bazelPath);
+  }
+
+  public static String readRawFilePath(String pathStr) throws IOException {
+    try (FileReader rdr = new FileReader(pathStr, StandardCharsets.UTF_8)) {
       StringBuilder buf = new StringBuilder();
       char[] buffer = new char[4096];
       int bytesRead;

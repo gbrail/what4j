@@ -16,7 +16,7 @@ import org.mozilla.javascript.VarScope;
 public class MinimalFetch {
   public static void init(Context cx, VarScope scope) throws IOException {
     var loadFunc = new LambdaFunction(scope, "load", 1, MinimalFetch::load);
-    String miniFetch = Utils.readFile("testrunner/scripts/mini-fetch.js");
+    String miniFetch = Utils.readResource("testrunner/scripts/mini-fetch.js");
     var exports = (Scriptable) cx.evaluateString(scope, miniFetch, "mini-fetch.js", 1, null);
     var loadFetch = (Function) exports.get("loadFetch", exports);
     var fetchFunc = (Function) loadFetch.call(cx, scope, null, new Object[] {loadFunc});

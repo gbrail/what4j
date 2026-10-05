@@ -8,12 +8,29 @@ npm_install(
 )
 
 babel_preprocess(
-    name = "wpt_source",
+    name = "harness_source",
+    srcs = ["wpt/resources/testharness.js"],
+    config = "//babel:babel.config.json",
+    npm = ":babel_deps",
+    visibility = ["//visibility:public"],
+)
+
+babel_preprocess(
+    name = "wpt_js_source",
     srcs = glob([
-        "wpt/resources/testharness.js",
+        "wpt/js/**/*.js",
     ]),
     config = "//babel:babel.config.json",
     npm = ":babel_deps",
+)
+
+filegroup(
+    name = "wpt_source",
+    srcs = glob([
+        "wpt/js/**/*.html",
+    ]) + [
+        ":wpt_js_source",
+    ],
     visibility = ["//visibility:public"],
 )
 

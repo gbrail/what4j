@@ -2,24 +2,24 @@ load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_rhino//java:defs.bzl", "junit5_test")
 
 filegroup(
-    name = "helper_scripts",
-    data = glob(["scripts/*.js"]),
-)
-
-filegroup(
     name = "testdata",
     data = glob([
         "testdata/**",
         "test/html/**",
+        "test/pass_tests/**",
     ]),
 )
 
 java_library(
     name = "testrunner",
     srcs = glob(["src/**/*.java"]),
+    resources = glob(["scripts/*.js"]) + ["//:harness_source"],
+    visibility = ["//visibility:public"],
     deps = [
         "@bazel_tools//tools/java/runfiles",
         "@maven//:org_jsoup_jsoup",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
         "@rhino//rhino",
     ],
 )
@@ -28,15 +28,29 @@ junit5_test(
     name = "smoke_test",
     srcs = ["test/org/brail/what4j/testrunner/tests/SmokeTest.java"],
     data = [
-        ":helper_scripts",
         ":testdata",
-        "//:wpt_source",
     ],
     test_class = "org.brail.what4j.testrunner.tests.SmokeTest",
     deps = [
         ":testrunner",
         "@bazel_tools//tools/java/runfiles",
         "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@rhino//rhino",
+    ],
+)
+
+junit5_test(
+    name = "base_test_smoke_test",
+    srcs = ["test/org/brail/what4j/testrunner/tests/BaseTestSmokeTest.java"],
+    data = [
+        ":testdata",
+    ],
+    test_class = "org.brail.what4j.testrunner.tests.BaseTestSmokeTest",
+    deps = [
+        ":testrunner",
+        "@bazel_tools//tools/java/runfiles",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
         "@rhino//rhino",
     ],
 )

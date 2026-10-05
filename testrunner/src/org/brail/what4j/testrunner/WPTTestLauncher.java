@@ -44,7 +44,7 @@ public class WPTTestLauncher {
   private BiConsumer<Context, VarScope> setupCallback;
 
   public static WPTTestLauncher newLauncher() throws IOException {
-    var s = new StringBuilder(Utils.readFile("wpt/resources/testharness.js"));
+    var s = new StringBuilder(Utils.readResource("wpt/resources/testharness.js"));
     return new WPTTestLauncher(s);
   }
 
