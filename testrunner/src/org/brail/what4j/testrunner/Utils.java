@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 import com.google.devtools.build.runfiles.AutoBazelRepository;
 import com.google.devtools.build.runfiles.Runfiles;
@@ -28,7 +29,7 @@ public class Utils {
     }
   }
 
-  public static String readFile(String pathStr) throws IOException {
+  public static Path findPath(String pathStr) throws IOException {
     // Bazel uses forward slashes for stuff...
     var p = "_main/" + pathStr;
     var bazelPath =
@@ -36,11 +37,15 @@ public class Utils {
     if (bazelPath == null) {
       throw new IOException("Bazel runfile not found: " + p);
     }
-    return readRawFilePath(bazelPath);
+    return Path.of(bazelPath);
   }
 
-  public static String readRawFilePath(String pathStr) throws IOException {
-    try (FileReader rdr = new FileReader(pathStr, StandardCharsets.UTF_8)) {
+  public static String readFile(String pathStr) throws IOException {
+    return readRawFilePath(findPath(pathStr));
+  }
+
+  public static String readRawFilePath(Path path) throws IOException {
+    try (FileReader rdr = new FileReader(path.toFile(), StandardCharsets.UTF_8)) {
       StringBuilder buf = new StringBuilder();
       char[] buffer = new char[4096];
       int bytesRead;

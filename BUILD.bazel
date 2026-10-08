@@ -1,4 +1,4 @@
-load("@rules_rhino//babel:defs.bzl", "babel_preprocess", "npm_install")
+load("@rules_rhino//babel:defs.bzl", "babel_preprocess", "babel_preprocess_html", "npm_install")
 load("@rules_rhino//java:defs.bzl", "google_java_format_check", "google_java_format_fix")
 
 npm_install(
@@ -17,18 +17,22 @@ babel_preprocess(
 
 babel_preprocess(
     name = "wpt_js_source",
-    srcs = glob([
-        "wpt/js/**/*.js",
-    ]),
+    srcs = [":wpt_js_files"],
+    config = "//babel:babel.config.json",
+    npm = ":babel_deps",
+)
+
+babel_preprocess_html(
+    name = "wpt_html_source",
+    srcs = [":wpt_html_files"],
     config = "//babel:babel.config.json",
     npm = ":babel_deps",
 )
 
 filegroup(
     name = "wpt_source",
-    srcs = glob([
-        "wpt/js/**/*.html",
-    ]) + [
+    srcs = [
+        ":wpt_html_source",
         ":wpt_js_source",
     ],
     visibility = ["//visibility:public"],
@@ -42,4 +46,24 @@ google_java_format_check(
 
 google_java_format_fix(
     name = "fixformat",
+)
+
+filegroup(
+    name = "wpt_html_files",
+    srcs = glob(
+        [
+            "wpt/js/builtins/*.html",
+        ],
+        exclude = [
+            "**/*hasOwnProperty-order*",
+            "**/*.sub.html",
+        ],
+    ),
+)
+
+filegroup(
+    name = "wpt_js_files",
+    srcs = glob([
+        "wpt/js/builtins/*.js",
+    ]),
 )

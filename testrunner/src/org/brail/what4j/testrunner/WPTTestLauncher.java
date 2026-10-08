@@ -8,6 +8,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 import org.jsoup.Jsoup;
@@ -42,6 +43,8 @@ public class WPTTestLauncher {
 
   private final StringBuilder harnessSource;
   private BiConsumer<Context, VarScope> setupCallback;
+
+  public record TestCase(String fileName, String source) {}
 
   public static WPTTestLauncher newLauncher() throws IOException {
     var s = new StringBuilder(Utils.readResource("wpt/resources/testharness.js"));
@@ -94,6 +97,10 @@ public class WPTTestLauncher {
   }
 
   public ResultTracker runScript(Context cx, String script) throws IOException {
+    return runScripts(cx, List.of(new TestCase("test.js", script)));
+  }
+
+  public ResultTracker runScripts(Context cx, List<TestCase> scripts) throws IOException {
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
@@ -110,7 +117,9 @@ public class WPTTestLauncher {
         new Object[] {tracker.getResultCallback(scope), tracker.getCompletionCallback(scope)});
 
     try {
-      cx.evaluateString(scope, script, "test.js", 1, null);
+      for (var s : scripts) {
+        cx.evaluateString(scope, s.source(), s.fileName(), 1, null);
+      }
     } catch (RhinoException e) {
       tracker.trackScriptException(e);
     }
@@ -120,29 +129,28 @@ public class WPTTestLauncher {
     return tracker;
   }
 
-  public ResultTracker runHtml(Context cx, String htmlSource) throws IOException {
+  public ResultTracker runHtml(Context cx, Path htmlPath, String htmlSource) throws IOException {
     var doc = Jsoup.parse(htmlSource);
     var scripts = doc.select("script");
+    var allSource = new ArrayList<TestCase>();
     for (var script : scripts) {
       var src = script.attr("src");
       if (!src.isEmpty()) {
         if (!"/resources/testharness.js".equals(src)
             && !"/resources/testharnessreport.js".equals(src)) {
-          var tracker = new ResultTracker();
-          tracker.trackException(new AssertionError("Unknown script source: " + src));
-          return tracker;
+          var subSrcPath = htmlPath.getParent().resolve(src);
+          var subSrc = Utils.readRawFilePath(subSrcPath);
+          System.out.println("Adding " + src);
+          allSource.add(new TestCase(src, subSrc));
         }
       } else {
-        var scriptSrc = script.data();
-        if (scriptSrc.isEmpty()) {
-          var tracker = new ResultTracker();
-          tracker.trackException(new AssertionError("No test script in script element"));
-          return tracker;
-        }
-        return runScript(cx, scriptSrc);
+        allSource.add(new TestCase("test.js", script.data()));
       }
     }
-    throw new AssertionError("No scripts in HTML");
+    if (allSource.isEmpty()) {
+      throw new AssertionError("No scripts in HTML");
+    }
+    return runScripts(cx, allSource);
   }
 
   /*

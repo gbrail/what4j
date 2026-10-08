@@ -177,13 +177,15 @@ public class SmokeTest {
 
   @Test
   public void testHtml() throws IOException {
-    var results = launcher.runHtml(cx, Utils.readFile("testrunner/test/html/html-test.html"));
+    var p = Utils.findPath("testrunner/test/html/html-test.html");
+    var results = launcher.runHtml(cx, p, Utils.readRawFilePath(p));
     assertTrue(results.success(), results.getFailureReason());
   }
 
   @Test
   public void testHtmlFail() throws IOException {
-    var results = launcher.runHtml(cx, Utils.readFile("testrunner/test/html/html-test-fail.html"));
+    var p = Utils.findPath("testrunner/test/html/html-test-fail.html");
+    var results = launcher.runHtml(cx, p, Utils.readRawFilePath(p));
     assertFalse(results.success());
   }
 }

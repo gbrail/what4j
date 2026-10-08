@@ -9,7 +9,7 @@ import org.mozilla.javascript.Context;
 
 import java.io.IOException;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public abstract class BaseTest {
   private static WPTTestLauncher launcher;
@@ -33,15 +33,19 @@ public abstract class BaseTest {
   @ParameterizedTest(name = "{0}")
   @ArgumentsSource(TestFileArgumentsProvider.class)
   public void testCase(String name, String sourceFile) throws IOException {
-    var src = Utils.readRawFilePath(sourceFile);
+    var sourcePath = Utils.findPath(sourceFile);
+    var src = Utils.readRawFilePath(sourcePath);
     ResultTracker tracker;
     if (sourceFile.endsWith(".html")) {
-      System.out.println("HTML test: " + name);
-      tracker = launcher.runHtml(cx, src);
+      tracker = launcher.runHtml(cx, sourcePath, src);
     } else {
-      System.out.println("JS test:   " + name);
       tracker = launcher.runScript(cx, src);
     }
-    assertTrue(tracker.success(), tracker.getFailureReason());
+    if (tracker.success()) {
+      System.out.println("PASS: " + name);
+    } else {
+      System.out.println("FAIL: " + name);
+      fail(tracker.getFailureReason());
+    }
   }
 }
