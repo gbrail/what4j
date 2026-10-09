@@ -75,9 +75,12 @@ filegroup(
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
         ],
-        exclude = [
-            "wpt/common/empty.js",
-        ],
+    exclude = [
+        "wpt/common/empty.js",
+        # Needs the WebIDL test harness (wpt/resources/idlharness.js,
+        # WebIDLParser.js), which is not wired up yet.
+        "wpt/url/idlharness.any.js",
+    ],
     ),
 )
 

@@ -47,9 +47,11 @@ public class ResultTracker {
         2,
         (Context cx, VarScope s, Object to, Object[] args) -> {
           assert args.length >= 2;
-          Scriptable ts = (Scriptable) args[1];
-          finalStatus = toFinalStatus(getInt(ts, "status"));
-          finalMessage = getString(ts, "message");
+          if (finalStatus != FinalStatus.EXCEPTION) {
+            Scriptable ts = (Scriptable) args[1];
+            finalStatus = toFinalStatus(getInt(ts, "status"));
+            finalMessage = getString(ts, "message");
+          }
           return Undefined.instance;
         });
   }

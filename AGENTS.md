@@ -10,10 +10,17 @@ engine written in Java. Correctness is verified by running the corresponding
 tests from the [web-platform-tests](https://github.com/web-platform-tests/wpt)
 suite (a git submodule at `wpt/`) inside Rhino via a JUnit 5 harness.
 
-The project is early-stage: the URL implementation (`core/scripts/url.js`) is
-currently a stub, so `//core:core_tests_UrlTest` has many failing cases. That
-is expected — the work is to implement the spec (see `specs/url.bs`) until the
-WPT tests pass.
+The URL standard is implemented in `core/scripts/url.js` as pure JavaScript
+(see "JavaScript dialect" below). The one part that is not pure JS is IDNA:
+the spec's "domain to ASCII" requires UTS #46 non-transitional processing with
+Unicode 17 data, so that is delegated to Java — `IdnaBridge` (ICU4J) registers
+a `__urlIdna` object on the Rhino scope, which `url.js` calls. `url.js`
+contains a small ASCII-only fallback if `__urlIdna` is absent.
+
+WPT coverage note: only `wpt/url/*.any.js` files run today (the root
+`BUILD.bazel` filegroups select what is available). HTML and `.window.js`
+tests (which need a DOM) and `idlharness.any.js` (needs the WebIDL test
+harness) are intentionally excluded for now.
 
 ## Repository layout
 
@@ -26,7 +33,7 @@ core/            The standards implementations
   test/          JUnit tests that run WPT cases against the implementations
 testrunner/      Test infrastructure shared by all tests
   src/           BaseTest, WPTTestLauncher, MinimalFetch, ResultTracker, Utils
-  scripts/       JS helpers (mini-fetch.js)
+  scripts/       JS helpers (mini-fetch.js, platform-shims.js)
   test/          Smoke tests + small HTML/JS test fixtures (test/html, test/pass_tests)
   testdata/      Test data files
 babel/           Babel config used to preprocess modern-syntax WPT test files
@@ -39,9 +46,13 @@ Key concepts:
 - A **module** is a JS file under `core/scripts/` that, when evaluated, returns
   a function `__loadX = function(exports) { ... }`. A Java class (e.g.
   `core/src/org/brail/what4j/core/URLModule.java`) loads it into the Rhino
-  scope via `Utils.loadModuleResource`. New modules follow this same
-  `<Name>Module.java` + `scripts/<name>.js` pattern and may implement the
-  `LoadableModule` interface.
+  scope via `Utils.loadModuleResource`, which copies the `exports` properties
+  onto the global scope. New modules follow this same `<Name>Module.java` +
+  `scripts/<name>.js` pattern and may implement the `LoadableModule` interface.
+- A **Java bridge** is a Java object registered on the Rhino scope for
+  functionality that must live on the JVM (see `IdnaBridge` → `__urlIdna` for
+  ICU4J-based IDNA). JS code calls it like any global object; bridges are
+  installed in the module's `<Name>Module.load(...)` before the JS is loaded.
 - A **test** is a JUnit class under `core/test/` extending
   `testrunner.BaseTest`, annotated with `@TestBaseDir("wpt/<area>")` to select
   which WPT test files to run, overriding `initializeLauncher(...)` to set a
@@ -55,6 +66,32 @@ Key concepts:
   available to tests. **When a new test class points at WPT files not already
   matched by these globs, add them to the globs** (and keep exclusions for
   tests that are intentionally unsupported).
+
+## JavaScript dialect (Rhino)
+
+Module scripts under `core/scripts/` run **untranspiled** on the pinned
+`rhino` master build. WPT test files are Babel-transpiled before running, so
+*test* code may use modern syntax — *module* code may not go beyond what
+Rhino actually supports. Verified against the pinned commit:
+
+- Supported: function declarations/expressions, arrow functions, template
+  literals, default arguments, destructuring, `for-of`, array spread,
+  optional chaining, `let`/`const`, `Map`/`Set`/`Promise`/`Proxy`/`Symbol`,
+  `Object.defineProperty` (getters/setters), `JSON`, `Array.from`/`flat`,
+  `Number.isInteger`, `Object.entries`, `String.prototype` `includes`/
+  `startsWith`/`padStart`/`trimStart`/`normalize`, Unicode regex (`/\p{L}/u`,
+  lookbehind), `globalThis`.
+- **Not supported: `class`, `async`/`await`, generators.**
+- Java interop: the `Packages`/`java` globals are NOT available (the context
+  uses `initSafeStandardObjects`). To call Java, add a bridge object on the
+  scope from Java (see the Java bridge concept above).
+- Not available: DOM, `TextEncoder`/`TextDecoder`, `atob`/`btoa`,
+  `setTimeout`/`queueMicrotask`, `fetch` (the testrunner installs a minimal
+  one), `structuredClone`/`DOMException`/`FormData` (the testrunner installs
+  minimal shims in `testrunner/scripts/platform-shims.js` — extend that file
+  if a WPT test needs another platform object).
+- Rhino's `let`/`const` block scoping has quirks; in module code prefer `var`
+  and function declarations unless a construct genuinely needs otherwise.
 
 ## Build
 
@@ -112,5 +149,10 @@ change done.
 - Refer to the spec in `specs/` as the source of truth when implementing;
   WPT tests in `wpt/` are the acceptance criteria. Do not edit `wpt/` — it is
   an upstream submodule.
+- Unicode/IDNA work belongs in the Java bridge (`IdnaBridge`, ICU4J), not in
+  JS. The WPT IDNA vectors (`wpt/url/resources/IdnaTestV2*.json`) are
+  generated for a specific Unicode release — keep the ICU4J version in
+  `MODULE.bazel` at or above the data version the vectors use (Unicode 17.0
+  requires icu4j >= 78.1).
 - Keep changes small and matching existing style; no new dependencies without
   updating `MODULE.bazel` + re-pinning.

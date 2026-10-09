@@ -43,6 +43,7 @@ public class WPTTestLauncher {
   """;
 
   private final StringBuilder harnessSource;
+  private final String shimsSource;
   private final List<BiConsumer<Context, VarScope>> setupCallbacks = new ArrayList<>();
   private String fetchBase;
 
@@ -50,7 +51,8 @@ public class WPTTestLauncher {
 
   public static WPTTestLauncher newLauncher() throws IOException {
     var s = new StringBuilder(Utils.readResource("wpt/resources/testharness.js"));
-    return new WPTTestLauncher(s);
+    var shims = Utils.readResource("testrunner/scripts/platform-shims.js");
+    return new WPTTestLauncher(s, shims);
   }
 
   public void setFetchBase(String fetchBase) {
@@ -65,8 +67,9 @@ public class WPTTestLauncher {
     harnessSource.append(Utils.readFile("wpt/resource/" + path));
   }
 
-  private WPTTestLauncher(StringBuilder script) {
+  private WPTTestLauncher(StringBuilder script, String shims) {
     this.harnessSource = script;
+    this.shimsSource = shims;
   }
 
   private VarScope initializeScope(Context cx, ResultTracker tracker) throws IOException {
@@ -125,6 +128,7 @@ public class WPTTestLauncher {
 
     cx.suspendMicrotaskProcessing();
     cx.evaluateString(scope, PRE_HARNESS_SCRIPT, "pre_harness.js", 1, null);
+    cx.evaluateString(scope, shimsSource, "platform-shims.js", 1, null);
     cx.evaluateString(scope, harnessSource.toString(), "testharness.js", 1, null);
     if (fetchBase != null) {
       cx.evaluateString(scope, "__setFetchBase('" + fetchBase + "')", "set_fetch_base.js", 1, null);
