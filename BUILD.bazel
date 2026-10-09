@@ -74,6 +74,8 @@ filegroup(
             "wpt/js/builtins/*.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
+            "wpt/urlpattern/resources/*.js",
+            "wpt/urlpattern/*.any.js",
         ],
     exclude = [
         "wpt/common/empty.js",
@@ -83,6 +85,10 @@ filegroup(
         # Needs the Fetch `Request` and `Response` classes, which are not
         # implemented yet.
         "wpt/url/urlencoded-parser.any.js",
+        # Duplicate coverage of the non-HTTPS URLPattern tests.
+        "wpt/urlpattern/*.https.any.js",
+        # Tentative URLPattern APIs are not implemented yet.
+        "wpt/urlpattern/*tentative*",
     ],
     ),
 )
@@ -93,5 +99,6 @@ filegroup(
     srcs = glob([
         "wpt/common/empty.js",
         "wpt/url/resources/*.json",
+        "wpt/urlpattern/resources/*.json",
     ]),
 )
