@@ -1,20 +1,41 @@
-package org.brail.what4j.core;
+package org.brail.what4j.bindings;
 
 import com.ibm.icu.text.IDNA;
+import org.mozilla.javascript.Context;
+import org.mozilla.javascript.LambdaFunction;
+import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.Undefined;
+import org.mozilla.javascript.VarScope;
+
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
-public final class IdnaBridge {
+public final class ICU {
   private static final int BASE_OPTIONS =
       IDNA.NONTRANSITIONAL_TO_ASCII | IDNA.CHECK_BIDI | IDNA.CHECK_CONTEXTJ | IDNA.CHECK_CONTEXTO;
   private static final IDNA NON_STRICT_IDNA = IDNA.getUTS46Instance(BASE_OPTIONS);
   private static final IDNA STRICT_IDNA = IDNA.getUTS46Instance(BASE_OPTIONS | IDNA.USE_STD3_RULES);
-  private static final Map<Integer, Boolean> DOT_CACHE = new ConcurrentHashMap<>();
 
-  private IdnaBridge() {}
+  private final Map<Integer, Boolean> dotCache = new HashMap<>();
 
-  public static String toASCII(String domain, boolean beStrict) {
+  public static Scriptable init(Context cx, VarScope scope) {
+    var icu = new ICU();
+    var o = cx.newObject(scope);
+    o.put("toASCII", o, new LambdaFunction(scope, "toASCII", 2, icu::toASCII));
+    return o;
+  }
+
+  private ICU() {}
+
+  private Object toASCII(Context cx, VarScope scope, Object self, Object[] args) {
+    String domain = Context.toString(args[0]);
+    boolean beStrict = Context.toBoolean(args[1]);
+    String result = toAsciiImpl(domain, beStrict);
+    return result == null ? Undefined.instance : result;
+  }
+
+  public String toAsciiImpl(String domain, boolean beStrict) {
     IDNA idna = beStrict ? STRICT_IDNA : NON_STRICT_IDNA;
     IDNA.Info info = new IDNA.Info();
     StringBuilder output = new StringBuilder();
@@ -25,7 +46,7 @@ public final class IdnaBridge {
     return output.toString().replace("\uFFFD", "");
   }
 
-  private static boolean shouldFail(IDNA idna, String domain, boolean beStrict) {
+  private boolean shouldFail(IDNA idna, String domain, boolean beStrict) {
     String[] labels = normalizeDots(idna, domain).split("\\.", -1);
     for (String label : labels) {
       IDNA.Info info = new IDNA.Info();
@@ -78,7 +99,7 @@ public final class IdnaBridge {
     return false;
   }
 
-  private static String normalizeDots(IDNA idna, String domain) {
+  private String normalizeDots(IDNA idna, String domain) {
     StringBuilder output = new StringBuilder(domain.length());
     for (int i = 0; i < domain.length(); ) {
       int codePoint = domain.codePointAt(i);
@@ -92,8 +113,8 @@ public final class IdnaBridge {
     return output.toString();
   }
 
-  private static boolean mapsToDot(IDNA idna, int codePoint) {
-    Boolean cached = DOT_CACHE.get(codePoint);
+  private boolean mapsToDot(IDNA idna, int codePoint) {
+    Boolean cached = dotCache.get(codePoint);
     if (cached != null) {
       return cached;
     }
@@ -106,7 +127,7 @@ public final class IdnaBridge {
             && output.charAt(0) == 'a'
             && output.charAt(1) == '.'
             && output.charAt(2) == 'b';
-    DOT_CACHE.put(codePoint, dot);
+    dotCache.put(codePoint, dot);
     return dot;
   }
 }

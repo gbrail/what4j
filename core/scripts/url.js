@@ -329,14 +329,9 @@ function containsForbiddenHostCodePoint(str) {
   return false;
 }
 
-// "domain parser ToASCII" — delegates to the Java ICU4J bridge when present,
-// otherwise falls back to an ASCII-only approximation (Phase 1).
 function domainToASCII(domain, beStrict) {
-  if (typeof __urlIdna !== "undefined" && __urlIdna !== null) {
-    return __urlIdna.toASCII(domain, beStrict);
-  }
-  if (!isASCIIStr(domain)) return null;
-  return asciiLowercase(domain);
+  const icu = getBinding("ICU");
+  return icu.toASCII(domain, beStrict);
 }
 
 function domainParser(domain, beStrict) {

@@ -1,5 +1,6 @@
 package org.brail.what4j.core;
 
+import org.brail.what4j.LoadContext;
 import org.mozilla.javascript.*;
 
 import java.io.IOException;
@@ -21,15 +22,18 @@ public class Utils {
    * <ol>
    *   <li>Create a new context
    *   <li>Populate it with an "exports" object
+   *   <li>Populate it with the "getBinding" function
    *   <li>Run the specified scripts in the context
    *   <li>Copy everything on "exports" to the global scope
    * </ol>
    */
   public static void loadModuleResources(
-      Context cx, VarScope scope, Class<?> base, List<String> paths) throws IOException {
+      Context cx, VarScope scope, LoadContext lc, Class<?> base, List<String> paths)
+      throws IOException {
     var exports = cx.newObject(scope);
     var loadScope = new LocalScope(scope);
     loadScope.put("exports", loadScope, exports);
+    loadScope.put("getBinding", loadScope, lc.getBindings());
 
     for (var path : paths) {
       var fileName = Path.of(path).getFileName().toString();
