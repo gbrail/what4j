@@ -7,7 +7,17 @@ import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.VarScope;
 
 import java.io.IOException;
+import java.util.List;
 
+/**
+ * This module loads:
+ *
+ * <ul>
+ *   <li>URL</li>
+ *   <li>URLSearchParams</li>
+ *   <li>URLPattern</li>
+ * </ul>
+ */
 public class URLModule {
   public static void load(Context cx, VarScope scope) {
     var idna = cx.newObject(scope);
@@ -18,7 +28,8 @@ public class URLModule {
         ScriptableObject.DONTENUM);
     scope.put("__urlIdna", scope, idna);
     try {
-      Utils.loadModuleResource(cx, scope, URLModule.class, "core/scripts/url.js");
+      Utils.loadModuleResources(
+          cx, scope, URLModule.class, List.of("core/scripts/url.js", "core/scripts/urlpattern.js"));
     } catch (IOException e) {
       throw new AssertionError("Error loading script: " + e, e);
     }

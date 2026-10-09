@@ -2093,10 +2093,4 @@ Object.defineProperty(URLPattern.prototype, "hasRegExpGroups", {
   configurable: true,
 });
 
-// ---------------------------------------------------------------------------
-// Module export
-// ---------------------------------------------------------------------------
-__loadURLPattern = function (exports) {
-  exports.URLPattern = URLPattern;
-};
-__loadURLPattern
+exports.URLPattern = URLPattern;

@@ -1709,11 +1709,5 @@ Object.defineProperty(URL.prototype, "hash", {
   configurable: true,
 });
 
-// ---------------------------------------------------------------------------
-// Module export
-// ---------------------------------------------------------------------------
-__loadUrl = function (exports) {
-  exports.URL = URL;
-  exports.URLSearchParams = URLSearchParams;
-};
-__loadUrl
+exports.URL = URL;
+exports.URLSearchParams = URLSearchParams;
