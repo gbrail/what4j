@@ -34,6 +34,7 @@ filegroup(
     srcs = [
         ":wpt_html_source",
         ":wpt_js_source",
+        ":wpt_resources",
     ],
     visibility = ["//visibility:public"],
 )
@@ -48,6 +49,8 @@ google_java_format_fix(
     name = "fixformat",
 )
 
+# Supported HTML test files, to be preprocessed with Babel.
+# Various tests will pull these preprocessed directories.
 filegroup(
     name = "wpt_html_files",
     srcs = glob(
@@ -61,9 +64,28 @@ filegroup(
     ),
 )
 
+# Supported JavaScript test scripts, to be preprocessed with Babel.
+# Various tests will pull these preprocessed directories.
 filegroup(
     name = "wpt_js_files",
+    srcs = glob(
+        [
+            "wpt/common/*.js",
+            "wpt/js/builtins/*.js",
+            "wpt/url/resources/*.js",
+            "wpt/url/*.any.js",
+        ],
+        exclude = [
+            "wpt/common/empty.js",
+        ],
+    ),
+)
+
+# Other test files that will not be preprocessed
+filegroup(
+    name = "wpt_resources",
     srcs = glob([
-        "wpt/js/builtins/*.js",
+        "wpt/common/empty.js",
+        "wpt/url/resources/*.json",
     ]),
 )

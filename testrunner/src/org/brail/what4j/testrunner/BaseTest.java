@@ -8,21 +8,21 @@ import org.junit.jupiter.params.provider.ArgumentsSource;
 import org.mozilla.javascript.Context;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
 public abstract class BaseTest {
-  private static WPTTestLauncher launcher;
   private Context cx;
+  private WPTTestLauncher launcher;
 
-  @BeforeAll
-  public static void initLauncher() throws IOException {
-    launcher = WPTTestLauncher.newLauncher();
-  }
+  protected void initializeLauncher(WPTTestLauncher launcher) throws Exception {}
 
   @BeforeEach
-  public void initContext() {
+  public void initContext() throws Exception {
     cx = Context.enter();
+    launcher = WPTTestLauncher.newLauncher();
+    initializeLauncher(launcher);
   }
 
   @AfterEach
@@ -39,7 +39,7 @@ public abstract class BaseTest {
     if (sourceFile.endsWith(".html")) {
       tracker = launcher.runHtml(cx, sourcePath, src);
     } else {
-      tracker = launcher.runScript(cx, src);
+      tracker = launcher.runScript(cx, Path.of(sourceFile), src);
     }
     if (tracker.success()) {
       System.out.println("PASS: " + name);

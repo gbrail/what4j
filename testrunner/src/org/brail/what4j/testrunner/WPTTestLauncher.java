@@ -28,6 +28,7 @@ public class WPTTestLauncher {
   private static final String PRE_HARNESS_SCRIPT =
       """
   var self = globalThis;
+  var location = { search: "" };
   """;
 
   private static final String POST_HARNESS_SCRIPT =
@@ -42,7 +43,8 @@ public class WPTTestLauncher {
   """;
 
   private final StringBuilder harnessSource;
-  private BiConsumer<Context, VarScope> setupCallback;
+  private final List<BiConsumer<Context, VarScope>> setupCallbacks = new ArrayList<>();
+  private String fetchBase;
 
   public record TestCase(String fileName, String source) {}
 
@@ -51,8 +53,12 @@ public class WPTTestLauncher {
     return new WPTTestLauncher(s);
   }
 
-  public void setSetupCallback(BiConsumer<Context, VarScope> callback) {
-    this.setupCallback = callback;
+  public void setFetchBase(String fetchBase) {
+    this.fetchBase = fetchBase;
+  }
+
+  public void addSetupCallback(BiConsumer<Context, VarScope> callback) {
+    setupCallbacks.add(callback);
   }
 
   public void addResource(String path) throws IOException {
@@ -80,8 +86,8 @@ public class WPTTestLauncher {
     // Tools used by the test framework to hook into our stuff
     TestUtils.init(cx, scope);
     scope.put("__testDefer", scope, new LambdaFunction(scope, "defer", 1, WPTTestLauncher::defer));
-    if (setupCallback != null) {
-      setupCallback.accept(cx, scope);
+    for (var c : setupCallbacks) {
+      c.accept(cx, scope);
     }
     return scope;
   }
@@ -96,11 +102,23 @@ public class WPTTestLauncher {
     return Undefined.instance;
   }
 
+  public ResultTracker runScript(Context cx, Path scriptPath, String script) throws IOException {
+    return runScripts(
+        cx,
+        List.of(new TestCase(scriptPath.getFileName().toString(), script)),
+        scriptPath.getParent());
+  }
+
   public ResultTracker runScript(Context cx, String script) throws IOException {
-    return runScripts(cx, List.of(new TestCase("test.js", script)));
+    return runScripts(cx, List.of(new TestCase("test.js", script)), null);
   }
 
   public ResultTracker runScripts(Context cx, List<TestCase> scripts) throws IOException {
+    return runScripts(cx, scripts, null);
+  }
+
+  public ResultTracker runScripts(Context cx, List<TestCase> scripts, Path basePath)
+      throws IOException {
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
@@ -108,6 +126,9 @@ public class WPTTestLauncher {
     cx.suspendMicrotaskProcessing();
     cx.evaluateString(scope, PRE_HARNESS_SCRIPT, "pre_harness.js", 1, null);
     cx.evaluateString(scope, harnessSource.toString(), "testharness.js", 1, null);
+    if (fetchBase != null) {
+      cx.evaluateString(scope, "__setFetchBase('" + fetchBase + "')", "set_fetch_base.js", 1, null);
+    }
     var setup =
         (Callable) cx.evaluateString(scope, POST_HARNESS_SCRIPT, "post_harness.js", 1, null);
     setup.call(
@@ -118,6 +139,9 @@ public class WPTTestLauncher {
 
     try {
       for (var s : scripts) {
+        if (basePath != null) {
+          HelperLoader.loadHelpers(cx, scope, s.source(), basePath);
+        }
         cx.evaluateString(scope, s.source(), s.fileName(), 1, null);
       }
     } catch (RhinoException e) {

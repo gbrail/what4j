@@ -49,17 +49,27 @@ public class TestFileArgumentsProvider implements ArgumentsProvider {
     }
 
     var files = new ArrayList<Arguments>();
+    var searchBaseDir = baseDir;
     Files.walkFileTree(
         baseDir,
         new SimpleFileVisitor<>() {
           @Override
           public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) {
-            String fileName = p.getFileName().toString();
-            if (p.toFile().isFile()
+            var fileName = p.getFileName().toString();
+            boolean inResources = false;
+            for (var name : searchBaseDir.relativize(p)) {
+              if ("resources".equals(name.toString())) {
+                inResources = true;
+                break;
+              }
+            }
+            if (!inResources
+                && p.toFile().isFile()
                 && (fileName.endsWith(".html")
                     || fileName.endsWith(".htm")
                     || fileName.endsWith(".js"))) {
-              files.add(Arguments.of(fileName, p.toString()));
+              var relPath = searchBaseDir.relativize(p);
+              files.add(Arguments.of(fileName, pathStr + "/" + relPath));
             }
             return FileVisitResult.CONTINUE;
           }

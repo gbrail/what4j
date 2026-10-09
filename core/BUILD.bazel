@@ -1,11 +1,21 @@
-load("@rules_rhino//java:defs.bzl", "junit5_test")
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_rhino//java:defs.bzl", "java_test_suite")
 
-junit5_test(
-    name = "core_test",
-    srcs = ["test/org/brail/what4j/core/tests/CoreTest.java"],
-    data = ["//:wpt_source"],
-    test_class = "org.brail.what4j.core.tests.CoreTest",
+java_library(
+    name = "core",
+    srcs = glob(["src/**/*.java"]),
+    resources = glob(["scripts/**"]),
     deps = [
+        "@rhino//rhino",
+    ],
+)
+
+java_test_suite(
+    name = "core_tests",
+    srcs = glob(["test/**/*Test.java"]),
+    data = ["//:wpt_source"],
+    deps = [
+        ":core",
         "//testrunner",
         "@maven//:org_junit_jupiter_junit_jupiter_api",
         "@maven//:org_junit_jupiter_junit_jupiter_params",
