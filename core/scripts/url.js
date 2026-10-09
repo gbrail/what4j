@@ -31,6 +31,30 @@ function codePoints(str) {
   return arr;
 }
 
+function toUSVString(input) {
+  var str = String(input);
+  var out = "";
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF) {
+      if (i + 1 < str.length) {
+        var next = str.charCodeAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          out += str.charAt(i) + str.charAt(i + 1);
+          i++;
+          continue;
+        }
+      }
+      out += "\uFFFD";
+    } else if (c >= 0xDC00 && c <= 0xDFFF) {
+      out += "\uFFFD";
+    } else {
+      out += str.charAt(i);
+    }
+  }
+  return out;
+}
+
 function isASCIIAlpha(cp) {
   return (cp >= 0x41 && cp <= 0x5A) || (cp >= 0x61 && cp <= 0x7A);
 }
@@ -92,10 +116,22 @@ function isURLCodePoint(cp) {
 // UTF-8
 // ---------------------------------------------------------------------------
 function utf8Encode(str) {
-  var cps = codePoints(str);
+  var cps = [];
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
+      var next = str.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        cps.push(0x10000 + ((c - 0xD800) << 10) + (next - 0xDC00));
+        i++;
+        continue;
+      }
+    }
+    cps.push(c >= 0xD800 && c <= 0xDFFF ? 0xFFFD : c);
+  }
   var bytes = [];
-  for (var i = 0; i < cps.length; i++) {
-    var cp = cps[i];
+  for (var j = 0; j < cps.length; j++) {
+    var cp = cps[j];
     if (cp < 0x80) {
       bytes.push(cp);
     } else if (cp < 0x800) {
@@ -338,34 +374,34 @@ function startsWithWindowsDriveLetter(str) {
   return cp[2] === 0x2F || cp[2] === 0x5C || cp[2] === 0x3F || cp[2] === 0x23;
 }
 
-function isRadixDigit(c, radix) {
-  if (c >= 0x30 && c <= 0x39 && c - 0x30 < radix) return true;
-  if (radix === 16) {
-    if (c >= 0x41 && c <= 0x46) return true;
-    if (c >= 0x61 && c <= 0x66) return true;
-  }
-  return false;
-}
-
 // Returns [value, validationError] or null (failure).
 function ipv4NumberParser(input) {
   if (input === "") return null;
   var validationError = false;
+  var start = 0;
   var radix = 10;
   if (input.length >= 2 && (input.substring(0, 2) === "0X" || input.substring(0, 2) === "0x")) {
     validationError = true;
-    input = input.substring(2);
+    start = 2;
     radix = 16;
-  } else if (input.length >= 2 && input.charAt(0) === "0") {
+  } else if (input.length >= 2 && input.charCodeAt(0) === 0x30) {
     validationError = true;
-    input = input.substring(1);
+    start = 1;
     radix = 8;
   }
-  if (input === "") return [0, true];
-  for (var i = 0; i < input.length; i++) {
-    if (!isRadixDigit(input.charCodeAt(i), radix)) return null;
+  var body = input.substring(start);
+  if (body === "") return [0, true];
+  for (var i = 0; i < body.length; i++) {
+    var c = body.charCodeAt(i);
+    var valid = false;
+    if (c >= 0x30 && c <= 0x39 && c - 0x30 < radix) {
+      valid = true;
+    } else if (radix === 16 && ((c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66))) {
+      valid = true;
+    }
+    if (!valid) return null;
   }
-  return [parseInt(input, radix), validationError];
+  return [parseInt(body, radix), validationError];
 }
 
 function isAllASCIIDigits(str) {
@@ -636,7 +672,9 @@ function urlHasOpaquePath(url) {
   return typeof url.path === "string";
 }
 function urlHostIsEmpty(host) {
-  return host !== null && host.type === "empty";
+  if (host === null) return true;
+  if (host.type === "empty") return true;
+  return host.type === "opaque" && host.value === "";
 }
 function urlCannotHaveUsernamePasswordPort(url) {
   return url.host === null || urlHostIsEmpty(url.host) || url.scheme === "file";
@@ -1267,28 +1305,65 @@ function urlencodedSerializer(tuples) {
 // ---------------------------------------------------------------------------
 // URLSearchParams
 // ---------------------------------------------------------------------------
+function isInterfacePrototype(value) {
+  if (typeof value !== "object" || value === null) return false;
+  var ctor = value.constructor;
+  return typeof ctor === "function" && ctor.prototype === value;
+}
+
 function URLSearchParams(init) {
-  var self = this;
-  self._list = [];
-  self._urlObject = null;
+  this._list = [];
+  this._urlObject = null;
   if (init === undefined || init === null) return;
   if (typeof init === "string") {
     var s = init.charAt(0) === "?" ? init.substring(1) : init;
-    self._list = urlencodedStringParser(s);
-  } else if (Array.isArray(init)) {
-    for (var i = 0; i < init.length; i++) {
-      var inner = init[i];
+    this._list = urlencodedStringParser(s);
+    return;
+  }
+  if (Array.isArray(init)) {
+    for (var a = 0; a < init.length; a++) {
+      var inner = init[a];
       if (!Array.isArray(inner) || inner.length !== 2) {
         throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
       }
-      self._list.push([String(inner[0]), String(inner[1])]);
+      this._list.push([toUSVString(inner[0]), toUSVString(inner[1])]);
     }
-  } else if (typeof init === "object") {
-    var keys = Object.keys(init);
-    for (var j = 0; j < keys.length; j++) {
-      self._list.push([String(keys[j]), String(init[keys[j]])]);
-    }
+    return;
   }
+  if (typeof init === "object" || typeof init === "function") {
+    if (typeof init[Symbol.iterator] === "function") {
+      var iterator = init[Symbol.iterator]();
+      for (;;) {
+        var step = iterator.next();
+        if (step.done) break;
+        var pair = step.value;
+        if (!Array.isArray(pair) || pair.length !== 2) {
+          throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
+        }
+        this._list.push([toUSVString(pair[0]), toUSVString(pair[1])]);
+      }
+      return;
+    }
+    if (isInterfacePrototype(init)) {
+      throw new TypeError("URLSearchParams: cannot initialize from an interface prototype");
+    }
+    var keys = Object.keys(init);
+    var list = [];
+    var indices = {};
+    for (var k = 0; k < keys.length; k++) {
+      var name = toUSVString(keys[k]);
+      var value = toUSVString(init[keys[k]]);
+      if (Object.prototype.hasOwnProperty.call(indices, name)) {
+        list[indices[name]][1] = value;
+      } else {
+        indices[name] = list.length;
+        list.push([name, value]);
+      }
+    }
+    this._list = list;
+    return;
+  }
+  this._list = urlencodedStringParser(toUSVString(init));
 }
 
 URLSearchParams.prototype._update = function () {
@@ -1299,17 +1374,18 @@ URLSearchParams.prototype._update = function () {
 };
 
 URLSearchParams.prototype.append = function (name, value) {
-  this._list.push([String(name), String(value)]);
+  this._list.push([toUSVString(name), toUSVString(value)]);
   this._update();
 };
 
 URLSearchParams.prototype.delete = function (name, value) {
   var hasValue = arguments.length > 1 && value !== undefined;
-  name = String(name);
+  name = toUSVString(name);
+  var compareValue = hasValue ? toUSVString(value) : null;
   var newList = [];
   for (var i = 0; i < this._list.length; i++) {
     var t = this._list[i];
-    if (t[0] === name && (!hasValue || t[1] === String(value))) continue;
+    if (t[0] === name && (!hasValue || t[1] === compareValue)) continue;
     newList.push(t);
   }
   this._list = newList;
@@ -1317,7 +1393,7 @@ URLSearchParams.prototype.delete = function (name, value) {
 };
 
 URLSearchParams.prototype.get = function (name) {
-  name = String(name);
+  name = toUSVString(name);
   for (var i = 0; i < this._list.length; i++) {
     if (this._list[i][0] === name) return this._list[i][1];
   }
@@ -1325,7 +1401,7 @@ URLSearchParams.prototype.get = function (name) {
 };
 
 URLSearchParams.prototype.getAll = function (name) {
-  name = String(name);
+  name = toUSVString(name);
   var out = [];
   for (var i = 0; i < this._list.length; i++) {
     if (this._list[i][0] === name) out.push(this._list[i][1]);
@@ -1335,17 +1411,18 @@ URLSearchParams.prototype.getAll = function (name) {
 
 URLSearchParams.prototype.has = function (name, value) {
   var hasValue = arguments.length > 1 && value !== undefined;
-  name = String(name);
+  name = toUSVString(name);
+  var compareValue = hasValue ? toUSVString(value) : null;
   for (var i = 0; i < this._list.length; i++) {
     var t = this._list[i];
-    if (t[0] === name && (!hasValue || t[1] === String(value))) return true;
+    if (t[0] === name && (!hasValue || t[1] === compareValue)) return true;
   }
   return false;
 };
 
 URLSearchParams.prototype.set = function (name, value) {
-  name = String(name);
-  value = String(value);
+  name = toUSVString(name);
+  value = toUSVString(value);
   var found = false;
   var newList = [];
   for (var i = 0; i < this._list.length; i++) {
@@ -1362,6 +1439,13 @@ URLSearchParams.prototype.set = function (name, value) {
   if (!found) newList.push([name, value]);
   this._list = newList;
   this._update();
+};
+
+URLSearchParams.prototype.forEach = function (callback, thisArg) {
+  var list = this._list;
+  for (var i = 0; i < list.length; i++) {
+    callback.call(thisArg, list[i][1], list[i][0], this);
+  }
 };
 
 URLSearchParams.prototype.sort = function () {
@@ -1386,10 +1470,11 @@ Object.defineProperty(URLSearchParams.prototype, "size", {
 });
 
 URLSearchParams.prototype[Symbol.iterator] = function () {
-  var list = this._list;
+  var self = this;
   var i = 0;
   return {
     next: function () {
+      var list = self._list;
       if (i < list.length) {
         var value = [list[i][0], list[i][1]];
         i++;
@@ -1418,8 +1503,10 @@ function apiURLParser(url, base) {
 
 function initializeURL(self, parsedRecord) {
   self._url = parsedRecord;
-  var query = parsedRecord.query !== null ? parsedRecord.query : "";
-  self._searchParams = new URLSearchParams(query);
+  self._searchParams = new URLSearchParams();
+  if (parsedRecord.query !== null) {
+    self._searchParams._list = urlencodedStringParser(parsedRecord.query);
+  }
   self._searchParams._urlObject = self;
 }
 

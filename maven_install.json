@@ -7,6 +7,7 @@
     "com.google.errorprone:error_prone_annotations": -1035138750,
     "com.google.guava:guava": 1943808618,
     "com.google.j2objc:j2objc-annotations": 2003271689,
+    "com.ibm.icu:icu4j": 1685361909,
     "info.picocli:picocli": 600678140,
     "org.hamcrest:hamcrest": 1547523135,
     "org.jsoup:jsoup": -1622565922,
@@ -32,6 +33,7 @@
     "com.google.guava:guava": -163533230,
     "com.google.guava:listenablefuture": 1079558157,
     "com.google.j2objc:j2objc-annotations": 248818742,
+    "com.ibm.icu:icu4j": -1667183492,
     "info.picocli:picocli": 996750497,
     "junit:junit": -1256429642,
     "org.apiguardian:apiguardian-api": 1279798469,
@@ -117,6 +119,12 @@
         "jar": "f02a95fa1a5e95edb3ed859fd0fb7df709d121a35290eff8b74dce2ab7f4d6ed"
       },
       "version": "2.8"
+    },
+    "com.ibm.icu:icu4j": {
+      "shasums": {
+        "jar": "e962c1758d9659ea1e1fbab99c58683f654d304e1126ace19aaabfe39e0edb25"
+      },
+      "version": "78.3"
     },
     "info.picocli:picocli": {
       "shasums": {
@@ -408,6 +416,29 @@
     ],
     "com.google.j2objc:j2objc-annotations": [
       "com.google.j2objc.annotations"
+    ],
+    "com.ibm.icu:icu4j": [
+      "com.ibm.icu.dev.tool.docs",
+      "com.ibm.icu.impl",
+      "com.ibm.icu.impl.breakiter",
+      "com.ibm.icu.impl.coll",
+      "com.ibm.icu.impl.data",
+      "com.ibm.icu.impl.duration",
+      "com.ibm.icu.impl.duration.impl",
+      "com.ibm.icu.impl.locale",
+      "com.ibm.icu.impl.number",
+      "com.ibm.icu.impl.number.parse",
+      "com.ibm.icu.impl.number.range",
+      "com.ibm.icu.impl.personname",
+      "com.ibm.icu.impl.text",
+      "com.ibm.icu.impl.units",
+      "com.ibm.icu.lang",
+      "com.ibm.icu.math",
+      "com.ibm.icu.message2",
+      "com.ibm.icu.number",
+      "com.ibm.icu.segmenter",
+      "com.ibm.icu.text",
+      "com.ibm.icu.util"
     ],
     "info.picocli:picocli": [
       "picocli"
@@ -734,6 +765,7 @@
       "com.google.guava:guava",
       "com.google.guava:listenablefuture",
       "com.google.j2objc:j2objc-annotations",
+      "com.ibm.icu:icu4j",
       "info.picocli:picocli",
       "junit:junit",
       "org.apiguardian:apiguardian-api",

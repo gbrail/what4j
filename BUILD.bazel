@@ -80,6 +80,9 @@ filegroup(
         # Needs the WebIDL test harness (wpt/resources/idlharness.js,
         # WebIDLParser.js), which is not wired up yet.
         "wpt/url/idlharness.any.js",
+        # Needs the Fetch `Request` and `Response` classes, which are not
+        # implemented yet.
+        "wpt/url/urlencoded-parser.any.js",
     ],
     ),
 )

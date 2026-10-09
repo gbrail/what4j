@@ -37,6 +37,7 @@ maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     artifacts = [
         "info.picocli:picocli:4.7.7",
+        "com.ibm.icu:icu4j:78.3",
         "com.fasterxml.jackson.core:jackson-databind:2.21.0",
         "org.junit.jupiter:junit-jupiter:5.10.3",
         "org.junit.jupiter:junit-jupiter-api:5.10.3",
