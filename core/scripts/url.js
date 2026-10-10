@@ -2,10 +2,10 @@
 // Runs untranspiled on Rhino: no `class`, no `async`/`await`, `var` + function
 // declarations, index-based loops (no `for (const of ...)`), no argument spread.
 
-// ---------------------------------------------------------------------------
-// Code point classification helpers
-// ---------------------------------------------------------------------------
-var EOF = -1;
+const icu = getBinding("ICU");
+const text = getBinding("text");
+
+const EOF = -1;
 
 function fromCodePoint(cp) {
   if (cp <= 0xFFFF) return String.fromCharCode(cp);
@@ -93,23 +93,6 @@ function asciiLowercase(str) {
     out += String.fromCharCode(c);
   }
   return out;
-}
-function isURLCodePoint(cp) {
-  if (isASCIIAlphanumeric(cp)) return true;
-  switch (cp) {
-    case 0x21: case 0x24: case 0x26: case 0x27: case 0x28: case 0x29:
-    case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
-    case 0x3A: case 0x3B: case 0x3D: case 0x3F: case 0x40: case 0x5F:
-    case 0x7E: return true;
-  }
-  if (cp >= 0xA0 && cp <= 0x10FFFD) {
-    if (cp >= 0xD800 && cp <= 0xDFFF) return false;
-    if (cp >= 0xFDD0 && cp <= 0xFDEF) return false;
-    if (cp >= 0xFFFE && cp <= 0xFFFF) return false;
-    if (cp > 0xFFFF && (cp & 0xFFFE) === 0xFFFE) return false;
-    return true;
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +239,7 @@ addEach(formUrlencodedSet, [0x21, 0x27, 0x28, 0x29, 0x7E]);
 // "percent-encode after encoding" with UTF-8.
 function utf8PercentEncodeString(input, set, spaceAsPlus) {
   var out = "";
-  var bytes = utf8Encode(input);
+  var bytes = text.utf8Encode(input);
   for (var i = 0; i < bytes.length; i++) {
     var b = bytes[i];
     if (spaceAsPlus && b === 0x20) {
@@ -293,7 +276,7 @@ function percentDecodeBytes(bytes) {
 }
 
 function percentDecodeString(input) {
-  return utf8Decode(percentDecodeBytes(utf8Encode(input)));
+  return text.utf8Decode(percentDecodeBytes(text.utf8Encode(input)));
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +313,6 @@ function containsForbiddenHostCodePoint(str) {
 }
 
 function domainToASCII(domain, beStrict) {
-  const icu = getBinding("ICU");
   return icu.toASCII(domain, beStrict);
 }
 
@@ -745,27 +727,27 @@ function serializeOrigin(origin) {
 // ---------------------------------------------------------------------------
 // Basic URL parser
 // ---------------------------------------------------------------------------
-var SCHEME_START = "scheme_start";
-var SCHEME = "scheme";
-var NO_SCHEME = "no_scheme";
-var SPECIAL_RELATIVE_OR_AUTHORITY = "special_relative_or_authority";
-var PATH_OR_AUTHORITY = "path_or_authority";
-var RELATIVE = "relative";
-var RELATIVE_SLASH = "relative_slash";
-var SPECIAL_AUTHORITY_SLASHES = "special_authority_slashes";
-var SPECIAL_AUTHORITY_IGNORE_SLASHES = "special_authority_ignore_slashes";
-var AUTHORITY = "authority";
-var HOST = "host";
-var HOSTNAME = "hostname";
-var PORT = "port";
-var FILE = "file";
-var FILE_SLASH = "file_slash";
-var FILE_HOST = "file_host";
-var PATH_START = "path_start";
-var PATH = "path";
-var CANNOT_BE_BASE = "cannot_be_base";
-var QUERY = "query";
-var FRAGMENT = "fragment";
+const SCHEME_START = "scheme_start";
+const SCHEME = "scheme";
+const NO_SCHEME = "no_scheme";
+const SPECIAL_RELATIVE_OR_AUTHORITY = "special_relative_or_authority";
+const PATH_OR_AUTHORITY = "path_or_authority";
+const RELATIVE = "relative";
+const RELATIVE_SLASH = "relative_slash";
+const SPECIAL_AUTHORITY_SLASHES = "special_authority_slashes";
+const SPECIAL_AUTHORITY_IGNORE_SLASHES = "special_authority_ignore_slashes";
+const AUTHORITY = "authority";
+const HOST = "host";
+const HOSTNAME = "hostname";
+const PORT = "port";
+const FILE = "file";
+const FILE_SLASH = "file_slash";
+const FILE_HOST = "file_host";
+const PATH_START = "path_start";
+const PATH = "path";
+const CANNOT_BE_BASE = "cannot_be_base";
+const QUERY = "query";
+const FRAGMENT = "fragment";
 
 // Returns a URL record, or null on failure. When `url` and `stateOverride` are
 // given, `url` is modified in place (used by the API setters).
@@ -1263,7 +1245,7 @@ function replaceByte(bytes, from, to) {
 
 // "urlencoded string parser"
 function urlencodedStringParser(input) {
-  var bytes = utf8Encode(input);
+  var bytes = text.utf8Encode(input);
   var sequences = splitBytes(bytes, 0x26);
   var output = [];
   for (var i = 0; i < sequences.length; i++) {
@@ -1280,7 +1262,7 @@ function urlencodedStringParser(input) {
     }
     name = replaceByte(name, 0x2B, 0x20);
     value = replaceByte(value, 0x2B, 0x20);
-    output.push([utf8Decode(percentDecodeBytes(name)), utf8Decode(percentDecodeBytes(value))]);
+    output.push([text.utf8Decode(percentDecodeBytes(name)), text.utf8Decode(percentDecodeBytes(value))]);
   }
   return output;
 }

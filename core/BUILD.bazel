@@ -20,5 +20,6 @@ java_test_suite(
         "//testrunner",
         "@maven//:org_junit_jupiter_junit_jupiter_api",
         "@maven//:org_junit_jupiter_junit_jupiter_params",
+        "@rhino//rhino",
     ],
 )

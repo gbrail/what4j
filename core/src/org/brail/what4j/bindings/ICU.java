@@ -11,6 +11,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Bindings to the ICU library for character set conversion to the weird UTS46
+ * encoding.
+ */
 public final class ICU {
   private static final int BASE_OPTIONS =
       IDNA.NONTRANSITIONAL_TO_ASCII | IDNA.CHECK_BIDI | IDNA.CHECK_CONTEXTJ | IDNA.CHECK_CONTEXTO;
