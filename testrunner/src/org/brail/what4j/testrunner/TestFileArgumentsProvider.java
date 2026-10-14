@@ -63,12 +63,9 @@ public class TestFileArgumentsProvider implements ArgumentsProvider {
                 break;
               }
             }
-            if (!inResources
-                && p.toFile().isFile()
-                && (fileName.endsWith(".html")
-                    || fileName.endsWith(".htm")
-                    || fileName.endsWith(".js"))) {
-              var relPath = searchBaseDir.relativize(p);
+            var relPath = searchBaseDir.relativize(p);
+            var relPathStr = relPath.toString();
+            if (!inResources && p.toFile().isFile() && matches(annotation, fileName, relPathStr)) {
               files.add(Arguments.of(fileName, pathStr + "/" + relPath));
             }
             return FileVisitResult.CONTINUE;
@@ -76,5 +73,38 @@ public class TestFileArgumentsProvider implements ArgumentsProvider {
         });
 
     return files.stream();
+  }
+
+  private boolean matches(TestBaseDir annotation, String fileName, String relPathStr) {
+    var suffixes = annotation.suffixes();
+    if (suffixes.length > 0) {
+      var matched = false;
+      for (var suffix : suffixes) {
+        if (fileName.endsWith(suffix)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        return false;
+      }
+    } else if (!(fileName.endsWith(".html")
+        || fileName.endsWith(".htm")
+        || fileName.endsWith(".js"))) {
+      return false;
+    }
+    for (var exclusion : annotation.exclude()) {
+      if (exclusion.isEmpty()) {
+        continue;
+      }
+      var excluded =
+          exclusion.endsWith("/") || exclusion.contains("*")
+              ? fileName.contains(exclusion) || relPathStr.contains(exclusion)
+              : fileName.equals(exclusion) || relPathStr.equals(exclusion);
+      if (excluded) {
+        return false;
+      }
+    }
+    return true;
   }
 }

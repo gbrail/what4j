@@ -1,6 +1,7 @@
 package org.brail.what4j;
 
 import org.brail.what4j.core.BindingsLoader;
+import org.brail.what4j.core.EncodingModule;
 import org.brail.what4j.core.LoadableModule;
 import org.brail.what4j.core.URLModule;
 import org.mozilla.javascript.Context;
@@ -20,6 +21,7 @@ public class What4J {
 
   static {
     MODULES = new HashMap<>();
+    MODULES.put("Encoding", EncodingModule::load);
     MODULES.put("URL", URLModule::load);
   }
 

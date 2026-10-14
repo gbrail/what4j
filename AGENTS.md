@@ -4,23 +4,26 @@ Guidance for AI assistants (and humans) working in this repository.
 
 ## What this project is
 
-What4j implements WHATWG web standards (URL, and eventually more) as JavaScript
-that runs on [Mozilla Rhino](https://github.com/mozilla/rhino), a JavaScript
-engine written in Java. Correctness is verified by running the corresponding
-tests from the [web-platform-tests](https://github.com/web-platform-tests/wpt)
-suite (a git submodule at `wpt/`) inside Rhino via a JUnit 5 harness.
+What4j implements WHATWG web standards (URL, URLPattern, and a partial
+Encoding API, and eventually more) as JavaScript that runs on [Mozilla
+Rhino](https://github.com/mozilla/rhino), a JavaScript engine written in Java.
+Correctness is verified by running the corresponding tests from the
+[web-platform-tests](https://github.com/web-platform-tests/wpt) suite (a git
+submodule at `wpt/`) inside Rhino via a JUnit 5 harness.
 
 The URL standard is implemented in `core/scripts/url.js` as pure JavaScript
-(see "JavaScript dialect" below). The one part that is not pure JS is IDNA:
-the spec's "domain to ASCII" requires UTS #46 non-transitional processing with
-Unicode 17 data, so that is delegated to Java — `IdnaBridge` (ICU4J) registers
-a `__urlIdna` object on the Rhino scope, which `url.js` calls. `url.js`
-contains a small ASCII-only fallback if `__urlIdna` is absent.
+(see "JavaScript dialect" below). Parts that are not pure JS are exposed as
+Java bindings: IDNA uses ICU4J via the `ICU` binding, and UTF-8 encoding/
+decoding for URL and the Encoding API uses the `Encoding` binding. JS modules
+obtain bindings with `getBinding("<name>")`.
 
-WPT coverage note: only `wpt/url/*.any.js` files run today (the root
-`BUILD.bazel` filegroups select what is available). HTML and `.window.js`
-tests (which need a DOM) and `idlharness.any.js` (needs the WebIDL test
-harness) are intentionally excluded for now.
+WPT coverage note: selected `wpt/url/*.any.js`, `wpt/urlpattern/*.any.js`,
+and `wpt/encoding/*.any.js` files run today (the root `BUILD.bazel` filegroups
+and each test class's `@TestBaseDir` annotations select what is available).
+HTML and `.window.js` tests (which need a DOM) and `idlharness.any.js` (needs
+the WebIDL test harness) are intentionally excluded for now. Legacy
+single-byte/multi-byte encodings, `TextEncoder.prototype.encodeInto`, and
+encoding streams are also excluded for now.
 
 ## Repository layout
 
@@ -37,28 +40,30 @@ testrunner/      Test infrastructure shared by all tests
   test/          Smoke tests + small HTML/JS test fixtures (test/html, test/pass_tests)
   testdata/      Test data files
 babel/           Babel config used to preprocess modern-syntax WPT test files
-specs/           Spec sources (e.g. url.bs — the WHATWG URL spec in Bikeshed)
+specs/           Spec sources (e.g. url.bs, urlpattern.bs, and encoding.bs in Bikeshed)
 wpt/             git submodule: web-platform-tests (test cases, read-only reference)
 ```
 
 Key concepts:
 
-- A **module** is a JS file under `core/scripts/` that, when evaluated, returns
-  a function `__loadX = function(exports) { ... }`. A Java class (e.g.
-  `core/src/org/brail/what4j/core/URLModule.java`) loads it into the Rhino
-  scope via `Utils.loadModuleResource`, which copies the `exports` properties
-  onto the global scope. New modules follow this same `<Name>Module.java` +
-  `scripts/<name>.js` pattern and may implement the `LoadableModule` interface.
-- A **Java bridge** is a Java object registered on the Rhino scope for
-  functionality that must live on the JVM (see `IdnaBridge` → `__urlIdna` for
-  ICU4J-based IDNA). JS code calls it like any global object; bridges are
-  installed in the module's `<Name>Module.load(...)` before the JS is loaded.
+- A **module** is one or more JS files under `core/scripts/` evaluated in a
+  shared local scope that has `exports` and `getBinding`. String properties
+  assigned to `exports` are copied onto the global scope. A Java class (e.g.
+  `core/src/org/brail/what4j/core/URLModule.java` or `EncodingModule.java`)
+  loads the files via `Utils.loadModuleResources`. New modules follow the
+  `<Name>Module.java` + `scripts/<name>.js` pattern and may implement the
+  `LoadableModule` interface.
+- A **Java binding** is a Java object registered in `BindingsLoader` for
+  functionality that must live on the JVM (see `ICU` for ICU4J-based IDNA and
+  `Encoding` for UTF-8/UTF-16 codecs). JS module code obtains it with
+  `getBinding("<name>")` and calls it like any global object.
 - A **test** is a JUnit class under `core/test/` extending
   `testrunner.BaseTest`, annotated with `@TestBaseDir("wpt/<area>")` to select
   which WPT test files to run, overriding `initializeLauncher(...)` to set a
   fetch base and register module-load callbacks. `BaseTest` parameterizes over
   every test file in the base dir and runs each in Rhino with
-  `wpt/resources/testharness.js`.
+  `wpt/resources/testharness.js`. `@TestBaseDir` also supports optional
+  `suffixes` and `exclude` attributes for selecting subsets of a directory.
 - WPT test files use modern JS syntax, so they are preprocessed with Babel
   before tests run (root `BUILD.bazel`: `babel_preprocess` /
   `babel_preprocess_html`). The filegroups `wpt_js_files`, `wpt_html_files`,
@@ -85,11 +90,13 @@ Rhino actually supports. Verified against the pinned commit:
 - Java interop: the `Packages`/`java` globals are NOT available (the context
   uses `initSafeStandardObjects`). To call Java, add a bridge object on the
   scope from Java (see the Java bridge concept above).
-- Not available: DOM, `TextEncoder`/`TextDecoder`, `atob`/`btoa`,
-  `setTimeout`/`queueMicrotask`, `fetch` (the testrunner installs a minimal
-  one), `structuredClone`/`DOMException`/`FormData` (the testrunner installs
-  minimal shims in `testrunner/scripts/platform-shims.js` — extend that file
-  if a WPT test needs another platform object).
+- Not available: DOM, `atob`/`btoa`, `setTimeout`/`queueMicrotask`, `fetch`
+  (the testrunner installs a minimal one), `structuredClone`/`DOMException`/
+  `FormData` (the testrunner installs minimal shims in
+  `testrunner/scripts/platform-shims.js` — extend that file if a WPT test
+  needs another platform object). `TextEncoder`/`TextDecoder` are available
+  from the Encoding module, but only the subset implemented by
+  `core/scripts/encoding.js` and the Java `Encoding` binding.
 - Rhino's `let`/`const` block scoping has quirks; in module code prefer `var`
   and function declarations unless a construct genuinely needs otherwise.
 
@@ -117,6 +124,7 @@ bazel test //...                      # everything
 bazel test //testrunner:smoke_test    # testrunner infrastructure smoke test
 bazel test //core:core_tests_UrlTest  # WPT url/ cases against the URL implementation
 bazel test //core:core_tests_CoreTest # WPT js/builtins cases
+bazel test //core:core_tests_EncodingTest # WPT encoding/ cases against the Encoding API
 ```
 
 Notes:
@@ -144,8 +152,8 @@ change done.
 ## Conventions
 
 - Java packages: `org.brail.what4j.core`, `org.brail.what4j.testrunner`.
-- JS module scripts define a single `__load<Name> = function(exports) {...}`
-  that assigns the public API onto `exports` (see `core/scripts/url.js`).
+- JS module scripts assign their public API onto `exports` (see
+  `core/scripts/url.js` and `core/scripts/encoding.js`).
 - Refer to the spec in `specs/` as the source of truth when implementing;
   WPT tests in `wpt/` are the acceptance criteria. Do not edit `wpt/` — it is
   an upstream submodule.

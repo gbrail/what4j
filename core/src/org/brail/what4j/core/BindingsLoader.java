@@ -1,7 +1,7 @@
 package org.brail.what4j.core;
 
+import org.brail.what4j.bindings.Encoding;
 import org.brail.what4j.bindings.ICU;
-import org.brail.what4j.bindings.Text;
 import org.mozilla.javascript.Callable;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.LambdaFunction;
@@ -21,7 +21,7 @@ public class BindingsLoader {
   static {
     BINDINGS = new HashMap<>();
     BINDINGS.put("ICU", ICU::init);
-    BINDINGS.put("text", Text::init);
+    BINDINGS.put("encoding", Encoding::init);
   }
 
   /** Return the function that is passed as "getBindings" in the module's script scope. */

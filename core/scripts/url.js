@@ -3,7 +3,7 @@
 // declarations, index-based loops (no `for (const of ...)`), no argument spread.
 
 const icu = getBinding("ICU");
-const text = getBinding("text");
+const encoding = getBinding("encoding");
 
 const EOF = -1;
 
@@ -96,96 +96,6 @@ function asciiLowercase(str) {
 }
 
 // ---------------------------------------------------------------------------
-// UTF-8
-// ---------------------------------------------------------------------------
-function utf8Encode(str) {
-  var cps = [];
-  for (var i = 0; i < str.length; i++) {
-    var c = str.charCodeAt(i);
-    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
-      var next = str.charCodeAt(i + 1);
-      if (next >= 0xDC00 && next <= 0xDFFF) {
-        cps.push(0x10000 + ((c - 0xD800) << 10) + (next - 0xDC00));
-        i++;
-        continue;
-      }
-    }
-    cps.push(c >= 0xD800 && c <= 0xDFFF ? 0xFFFD : c);
-  }
-  var bytes = [];
-  for (var j = 0; j < cps.length; j++) {
-    var cp = cps[j];
-    if (cp < 0x80) {
-      bytes.push(cp);
-    } else if (cp < 0x800) {
-      bytes.push(0xC0 | (cp >> 6), 0x80 | (cp & 0x3F));
-    } else if (cp < 0x10000) {
-      bytes.push(
-        0xE0 | (cp >> 12),
-        0x80 | ((cp >> 6) & 0x3F),
-        0x80 | (cp & 0x3F)
-      );
-    } else {
-      bytes.push(
-        0xF0 | (cp >> 18),
-        0x80 | ((cp >> 12) & 0x3F),
-        0x80 | ((cp >> 6) & 0x3F),
-        0x80 | (cp & 0x3F)
-      );
-    }
-  }
-  return bytes;
-}
-
-function utf8Decode(bytes) {
-  var out = "";
-  var i = 0;
-  while (i < bytes.length) {
-    var b = bytes[i];
-    var cp, extra;
-    if (b < 0x80) {
-      cp = b;
-      extra = 0;
-    } else if (b >= 0xC0 && b < 0xE0) {
-      cp = b & 0x1F;
-      extra = 1;
-    } else if (b >= 0xE0 && b < 0xF0) {
-      cp = b & 0x0F;
-      extra = 2;
-    } else if (b >= 0xF0 && b < 0xF8) {
-      cp = b & 0x07;
-      extra = 3;
-    } else {
-      out += "\uFFFD";
-      i++;
-      continue;
-    }
-    if (i + extra >= bytes.length) {
-      out += "\uFFFD";
-      i = bytes.length;
-      continue;
-    }
-    var valid = true;
-    for (var j = 0; j < extra; j++) {
-      var nb = bytes[i + 1 + j];
-      if ((nb & 0xC0) !== 0x80) {
-        valid = false;
-        break;
-      }
-      cp = (cp << 6) | (nb & 0x3F);
-    }
-    if (!valid) {
-      out += "\uFFFD";
-      i++;
-      continue;
-    }
-    i += 1 + extra;
-    out += fromCodePoint(cp);
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------------------
 // Percent-encoding
 // ---------------------------------------------------------------------------
 function percentEncodeByte(b) {
@@ -239,7 +149,7 @@ addEach(formUrlencodedSet, [0x21, 0x27, 0x28, 0x29, 0x7E]);
 // "percent-encode after encoding" with UTF-8.
 function utf8PercentEncodeString(input, set, spaceAsPlus) {
   var out = "";
-  var bytes = text.utf8Encode(input);
+  var bytes = encoding.utf8Encode(input);
   for (var i = 0; i < bytes.length; i++) {
     var b = bytes[i];
     if (spaceAsPlus && b === 0x20) {
@@ -276,7 +186,7 @@ function percentDecodeBytes(bytes) {
 }
 
 function percentDecodeString(input) {
-  return text.utf8Decode(percentDecodeBytes(text.utf8Encode(input)));
+  return encoding.utf8Decode(percentDecodeBytes(encoding.utf8Encode(input)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1245,7 +1155,7 @@ function replaceByte(bytes, from, to) {
 
 // "urlencoded string parser"
 function urlencodedStringParser(input) {
-  var bytes = text.utf8Encode(input);
+  var bytes = encoding.utf8Encode(input);
   var sequences = splitBytes(bytes, 0x26);
   var output = [];
   for (var i = 0; i < sequences.length; i++) {
@@ -1262,7 +1172,7 @@ function urlencodedStringParser(input) {
     }
     name = replaceByte(name, 0x2B, 0x20);
     value = replaceByte(value, 0x2B, 0x20);
-    output.push([text.utf8Decode(percentDecodeBytes(name)), text.utf8Decode(percentDecodeBytes(value))]);
+    output.push([encoding.utf8Decode(percentDecodeBytes(name)), encoding.utf8Decode(percentDecodeBytes(value))]);
   }
   return output;
 }
