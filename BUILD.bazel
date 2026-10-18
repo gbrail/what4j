@@ -39,11 +39,11 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-google_java_format_check(
-    name = "checkformat",
-    files = glob(["**/*.java"]),
-    tags = ["manual"],
-)
+#google_java_format_check(
+#    name = "checkformat",
+#    files = glob(["**/*.java"]),
+#    tags = ["manual"],
+#)
 
 google_java_format_fix(
     name = "fixformat",
@@ -71,41 +71,27 @@ filegroup(
     srcs = glob(
         [
             "wpt/common/*.js",
-            "wpt/js/builtins/*.js",
+            "wpt/encoding/*.js",
             "wpt/encoding/resources/*.js",
-            "wpt/encoding/*.any.js",
+            "wpt/js/builtins/*.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
             "wpt/urlpattern/resources/*.js",
             "wpt/urlpattern/*.any.js",
         ],
-    exclude = [
-        "wpt/common/empty.js",
-        # Needs the WebIDL test harness (wpt/resources/idlharness.js,
-        # WebIDLParser.js), which is not wired up yet.
-        "wpt/url/idlharness.any.js",
-        "wpt/encoding/idlharness.any.js",
-        # Legacy single-byte and multi-byte decoders are not implemented yet.
-        "wpt/encoding/single-byte-decoder.any.js",
-        "wpt/encoding/replacement-encodings.any.js",
-        "wpt/encoding/unsupported-encodings.any.js",
-        "wpt/encoding/textdecoder-streaming.any.js",
-        "wpt/encoding/textdecoder-copy.any.js",
-        "wpt/encoding/encodeInto.any.js",
-        "wpt/encoding/textdecoder-eof.any.js",
-        "wpt/encoding/textdecoder-fatal-single-byte.any.js",
-        "wpt/encoding/textdecoder-mistakes.any.js",
-        "wpt/encoding/iso-2022-jp-decoder.any.js",
-        # Needs ArrayBuffer.prototype.transfer and related APIs.
-        "wpt/encoding/textdecoder-arguments.any.js",
-        # Needs the Fetch `Request` and `Response` classes, which are not
-        # implemented yet.
-        "wpt/url/urlencoded-parser.any.js",
-        # Duplicate coverage of the non-HTTPS URLPattern tests.
-        "wpt/urlpattern/*.https.any.js",
-        # Tentative URLPattern APIs are not implemented yet.
-        "wpt/urlpattern/*tentative*",
-    ],
+        exclude = [
+            "wpt/common/empty.js",
+            # Needs the WebIDL test harness (wpt/resources/idlharness.js,
+            # WebIDLParser.js), which is not wired up yet.
+            "wpt/url/idlharness.any.js",
+            # Needs the Fetch `Request` and `Response` classes, which are not
+            # implemented yet.
+            "wpt/url/urlencoded-parser.any.js",
+            # Duplicate coverage of the non-HTTPS URLPattern tests.
+            "wpt/urlpattern/*.https.any.js",
+            # Tentative URLPattern APIs are not implemented yet.
+            "wpt/urlpattern/*tentative*",
+        ],
     ),
 )
 

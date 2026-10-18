@@ -26,7 +26,7 @@ git_override(
 
 git_override(
     module_name = "rhino",
-    commit = "f8332fd422fba673392f93b4dfd457700c3c7f47",
+    commit = "b95f75d0ee1a974638706863a0b0b135289cea8d",
     remote = "https://github.com/mozilla/rhino.git",
 )
 
