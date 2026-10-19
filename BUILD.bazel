@@ -73,6 +73,7 @@ filegroup(
             "wpt/common/*.js",
             "wpt/encoding/*.js",
             "wpt/encoding/resources/*.js",
+            "wpt/hr-time/*.any.js",
             "wpt/js/builtins/*.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",

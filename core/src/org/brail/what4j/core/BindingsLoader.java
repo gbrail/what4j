@@ -2,6 +2,7 @@ package org.brail.what4j.core;
 
 import org.brail.what4j.bindings.Encoding;
 import org.brail.what4j.bindings.ICU;
+import org.brail.what4j.bindings.Performance;
 import org.brail.what4j.bindings.Url;
 import org.mozilla.javascript.Callable;
 import org.mozilla.javascript.Context;
@@ -23,6 +24,7 @@ public class BindingsLoader {
     BINDINGS = new HashMap<>();
     BINDINGS.put("ICU", ICU::init);
     BINDINGS.put("encoding", Encoding::init);
+    BINDINGS.put("performance", Performance::init);
     BINDINGS.put("url", Url::init);
   }
 

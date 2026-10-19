@@ -5,6 +5,7 @@ java_library(
     name = "core",
     srcs = glob(["src/**/*.java"]),
     resources = glob(["scripts/**"]),
+    visibility = ["//visibility:public"],
     deps = [
         "@maven//:com_ibm_icu_icu4j",
         "@rhino//rhino",

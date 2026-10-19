@@ -4,8 +4,9 @@ Guidance for AI assistants (and humans) working in this repository.
 
 ## What this project is
 
-What4j implements WHATWG web standards (URL, URLPattern, and a partial
-Encoding API, and eventually more) as JavaScript that runs on [Mozilla
+What4j implements WHATWG web standards (URL, URLPattern, a partial Encoding
+API, and a minimal Performance object per High Resolution Time, and
+eventually more) as JavaScript that runs on [Mozilla
 Rhino](https://github.com/mozilla/rhino), a JavaScript engine written in Java.
 Correctness is verified by running the corresponding tests from the
 [web-platform-tests](https://github.com/web-platform-tests/wpt) suite (a git
@@ -16,16 +17,21 @@ The URL standard is implemented in `core/scripts/url.js` as pure JavaScript
 algorithms (percent-encoding, host parsing/serialization, urlencoded
 parse/serialize, `toUSVString`) in the `url` Java binding. Other non-pure-JS
 parts are exposed as Java bindings too: IDNA uses ICU4J via the `ICU`
-binding, and UTF-8 encoding/decoding for URL and the Encoding API uses the
-`Encoding` binding. JS modules obtain bindings with `getBinding("<name>")`.
+binding, UTF-8 encoding/decoding for URL and the Encoding API uses the
+`Encoding` binding, and the High Resolution Time clock (a `System.nanoTime`
+monotonic clock coarsened to the spec-mandated 100 microsecond resolution)
+uses the `performance` binding. JS modules obtain bindings with
+`getBinding("<name>")`.
 
 WPT coverage note: selected `wpt/url/*.any.js`, `wpt/urlpattern/*.any.js`,
-and `wpt/encoding/*.any.js` files run today (the root `BUILD.bazel` filegroups
-and each test class's `@TestBaseDir` annotations select what is available).
-HTML and `.window.js` tests (which need a DOM) and `idlharness.any.js` (needs
-the WebIDL test harness) are intentionally excluded for now. Legacy
-single-byte/multi-byte encodings, `TextEncoder.prototype.encodeInto`, and
-encoding streams are also excluded for now.
+`wpt/encoding/*.any.js`, and `wpt/hr-time/*.any.js` files run today (the root
+`BUILD.bazel` filegroups and each test class's `@TestBaseDir` annotations
+select what is available). HTML and `.window.js` tests (which need a DOM) and
+`idlharness.any.js` (needs the WebIDL test harness) are intentionally
+excluded for now. Legacy single-byte/multi-byte encodings,
+`TextEncoder.prototype.encodeInto`, and encoding streams are also excluded
+for now. The rest of the Performance Timeline API (User Timing entries,
+`PerformanceObserver`) is not implemented.
 
 ## Repository layout
 
@@ -36,6 +42,7 @@ core/            The standards implementations
   src/           Java wrappers that load JS modules into a Rhino context
   scripts/       The actual JS implementations (e.g. url.js)
   test/          JUnit tests that run WPT cases against the implementations
+bench/           JS<->Java boundary microbenchmark (bazel run //bench:boundary_bench)
 testrunner/      Test infrastructure shared by all tests
   src/           BaseTest, WPTTestLauncher, MinimalFetch, ResultTracker, Utils
   scripts/       JS helpers (mini-fetch.js, platform-shims.js)

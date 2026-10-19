@@ -1,0 +1,11 @@
+load("@rules_java//java:defs.bzl", "java_binary")
+
+java_binary(
+    name = "boundary_bench",
+    srcs = ["org/brail/what4j/bench/BoundaryBench.java"],
+    main_class = "org.brail.what4j.bench.BoundaryBench",
+    deps = [
+        "//core",
+        "@rhino//rhino",
+    ],
+)
