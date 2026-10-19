@@ -27,7 +27,7 @@ public final class ICU {
     return o;
   }
 
-  private ICU() {}
+  public ICU() {}
 
   private Object toASCII(Context cx, VarScope scope, Object self, Object[] args) {
     String domain = Context.toString(args[0]);

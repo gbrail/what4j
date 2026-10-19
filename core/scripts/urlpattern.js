@@ -22,16 +22,16 @@ var UP_ID_CONTINUE_RE = new RegExp("\\p{ID_Continue}", "u");
 // ---------------------------------------------------------------------------
 
 function upCodePointLength(str) {
-  return codePoints(str).length;
+  return urlparse.codePoints(str).length;
 }
 
 function upCodePointAt(str, index) {
-  var cps = codePoints(str);
+  var cps = urlparse.codePoints(str);
   return index >= 0 && index < cps.length ? cps[index] : undefined;
 }
 
 function upCodePointSubstring(str, start, end) {
-  var cps = codePoints(str);
+  var cps = urlparse.codePoints(str);
   if (start < 0) start = 0;
   if (end > cps.length) end = cps.length;
   var out = "";
@@ -46,7 +46,7 @@ function upCodePointSubstringToEnd(str, start) {
 }
 
 function upLastIndexOfCodePoint(str, cp) {
-  var cps = codePoints(str);
+  var cps = urlparse.codePoints(str);
   for (var i = cps.length - 1; i >= 0; i--) {
     if (cps[i] === cp) return i;
   }
@@ -55,7 +55,7 @@ function upLastIndexOfCodePoint(str, cp) {
 
 function upCodePointEquals(cp, str) {
   if (str.length === 0) return false;
-  var cps = codePoints(str);
+  var cps = urlparse.codePoints(str);
   return cps.length === 1 && cps[0] === cp;
 }
 
@@ -138,7 +138,7 @@ function upEscapePatternString(input) {
 // ---------------------------------------------------------------------------
 
 function upTokenize(input, policy) {
-  var cps = codePoints(input);
+  var cps = urlparse.codePoints(input);
   var tokens = [];
   var i = 0;
 
@@ -529,7 +529,7 @@ function upParsePatternString(input, options, encodingCallback) {
 // ---------------------------------------------------------------------------
 
 function upSanitizeCustomRegexp(input) {
-  var cps = codePoints(input);
+  var cps = urlparse.codePoints(input);
   var out = "";
   var i = 0;
   var inClass = false;
@@ -1094,12 +1094,12 @@ function upCanonicalizeProtocol(value) {
 
 function upCanonicalizeUsername(value) {
   if (value === "") return "";
-  return utf8PercentEncodeString(value, userinfoSet);
+  return urlparse.percentEncode(value, "userinfo");
 }
 
 function upCanonicalizePassword(value) {
   if (value === "") return "";
-  return utf8PercentEncodeString(value, userinfoSet);
+  return urlparse.percentEncode(value, "userinfo");
 }
 
 function upCanonicalizeHostname(value) {
@@ -1107,11 +1107,11 @@ function upCanonicalizeHostname(value) {
   var dummy = upCreateDummyURL();
   var parsed = basicURLParser(value, null, dummy, HOSTNAME);
   if (!parsed) throw new TypeError("Invalid hostname");
-  return parsed.host ? serializeHost(parsed.host) : "";
+  return parsed.host ? urlparse.serializeHost(parsed.host) : "";
 }
 
 function upCanonicalizeIPv6Hostname(value) {
-  var cps = codePoints(value);
+  var cps = urlparse.codePoints(value);
   for (var i = 0; i < cps.length; i++) {
     var cp = cps[i];
     if (
@@ -1193,7 +1193,7 @@ function upProcessBaseString(input, type) {
 }
 
 function upStripTrailingColon(value) {
-  var cps = codePoints(value);
+  var cps = urlparse.codePoints(value);
   if (cps.length > 0 && cps[cps.length - 1] === 0x3a) {
     return upCodePointSubstring(value, 0, cps.length - 1);
   }
@@ -1255,7 +1255,7 @@ function upProcessHashForInit(value, type) {
 
 function upIsAbsolutePathname(input, type) {
   if (input === "") return false;
-  var cps = codePoints(input);
+  var cps = urlparse.codePoints(input);
   if (cps[0] === 0x2f) return true;
   if (type === "url") return false;
   if (cps.length < 2) return false;
@@ -1321,7 +1321,7 @@ function upProcessInit(
     }
 
     if (!upHas(init, "protocol") && !upHas(init, "hostname")) {
-      var baseHost = baseURL.host ? serializeHost(baseURL.host) : "";
+      var baseHost = baseURL.host ? urlparse.serializeHost(baseURL.host) : "";
       result.hostname = upProcessBaseString(baseHost, type);
     }
 
@@ -1787,7 +1787,7 @@ function upCompileComponent(patternString, encodingCallback, options) {
 }
 
 function upHostnamePatternIsIPv6(input) {
-  var cps = codePoints(input);
+  var cps = urlparse.codePoints(input);
   if (cps.length < 2) return false;
   if (cps[0] === 0x5b) return true;
   if (cps[0] === 0x7b && cps[1] === 0x5b) return true;
@@ -1937,7 +1937,7 @@ function upFillFromURL(url, comp) {
   comp.protocol = url.scheme;
   comp.username = url.username;
   comp.password = url.password;
-  comp.hostname = url.host ? serializeHost(url.host) : "";
+  comp.hostname = url.host ? urlparse.serializeHost(url.host) : "";
   comp.port = url.port === null ? "" : String(url.port);
   comp.pathname = serializeURLPath(url);
   comp.search = url.query === null ? "" : url.query;

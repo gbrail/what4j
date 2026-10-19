@@ -2,8 +2,10 @@
 // Runs untranspiled on Rhino: no `class`, no `async`/`await`, `var` + function
 // declarations, index-based loops (no `for (const of ...)`), no argument spread.
 
-const icu = getBinding("ICU");
-const encoding = getBinding("encoding");
+// The "url" binding holds the URL standard's string/byte/table algorithms
+// (percent-encoding, host parsing/serialization, urlencoded parse/serialize).
+// The basic URL parser state machine below stays in JS.
+const urlparse = getBinding("url");
 
 const EOF = -1;
 
@@ -11,48 +13,6 @@ function fromCodePoint(cp) {
   if (cp <= 0xFFFF) return String.fromCharCode(cp);
   cp -= 0x10000;
   return String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
-}
-
-// Convert a string to an array of code point values.
-function codePoints(str) {
-  var arr = [];
-  for (var i = 0; i < str.length; i++) {
-    var c = str.charCodeAt(i);
-    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
-      var next = str.charCodeAt(i + 1);
-      if (next >= 0xDC00 && next <= 0xDFFF) {
-        arr.push(0x10000 + ((c - 0xD800) << 10) + (next - 0xDC00));
-        i++;
-        continue;
-      }
-    }
-    arr.push(c);
-  }
-  return arr;
-}
-
-function toUSVString(input) {
-  var str = String(input);
-  var out = "";
-  for (var i = 0; i < str.length; i++) {
-    var c = str.charCodeAt(i);
-    if (c >= 0xD800 && c <= 0xDBFF) {
-      if (i + 1 < str.length) {
-        var next = str.charCodeAt(i + 1);
-        if (next >= 0xDC00 && next <= 0xDFFF) {
-          out += str.charAt(i) + str.charAt(i + 1);
-          i++;
-          continue;
-        }
-      }
-      out += "\uFFFD";
-    } else if (c >= 0xDC00 && c <= 0xDFFF) {
-      out += "\uFFFD";
-    } else {
-      out += str.charAt(i);
-    }
-  }
-  return out;
 }
 
 function isASCIIAlpha(cp) {
@@ -73,18 +33,6 @@ function isC0ControlOrSpace(cp) {
 function isASCIITabOrNewline(cp) {
   return cp === 0x09 || cp === 0x0A || cp === 0x0D;
 }
-function hexValue(cp) {
-  if (cp >= 0x30 && cp <= 0x39) return cp - 0x30;
-  if (cp >= 0x61 && cp <= 0x66) return cp - 0x61 + 10;
-  if (cp >= 0x41 && cp <= 0x46) return cp - 0x41 + 10;
-  return 0;
-}
-function isASCIIStr(str) {
-  for (var i = 0; i < str.length; i++) {
-    if (str.charCodeAt(i) > 0x7F) return false;
-  }
-  return true;
-}
 function asciiLowercase(str) {
   var out = "";
   for (var i = 0; i < str.length; i++) {
@@ -96,432 +44,25 @@ function asciiLowercase(str) {
 }
 
 // ---------------------------------------------------------------------------
-// Percent-encoding
-// ---------------------------------------------------------------------------
-function percentEncodeByte(b) {
-  var hex = b.toString(16).toUpperCase();
-  if (hex.length < 2) hex = "0" + hex;
-  return "%" + hex;
-}
-
-function makeSet() {
-  var a = [];
-  for (var i = 0; i < 256; i++) a[i] = false;
-  return a;
-}
-function copySet(set) {
-  var a = [];
-  for (var i = 0; i < 256; i++) a[i] = set[i];
-  return a;
-}
-function addRange(set, from, to) {
-  for (var i = from; i <= to; i++) set[i] = true;
-}
-function addEach(set, cps) {
-  for (var i = 0; i < cps.length; i++) set[cps[i]] = true;
-}
-
-var c0ControlSet = makeSet();
-addRange(c0ControlSet, 0x00, 0x1F);
-c0ControlSet[0x7F] = true;
-
-var fragmentSet = copySet(c0ControlSet);
-addEach(fragmentSet, [0x20, 0x22, 0x3C, 0x3E, 0x60]);
-
-var querySet = copySet(c0ControlSet);
-addEach(querySet, [0x20, 0x22, 0x23, 0x3C, 0x3E]);
-
-var specialQuerySet = copySet(querySet);
-specialQuerySet[0x27] = true;
-
-var pathSet = copySet(querySet);
-addEach(pathSet, [0x3F, 0x5E, 0x60, 0x7B, 0x7D]);
-
-var userinfoSet = copySet(pathSet);
-addEach(userinfoSet, [0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x7C]);
-
-var componentSet = copySet(userinfoSet);
-addEach(componentSet, [0x24, 0x25, 0x26, 0x2B, 0x2C]);
-
-var formUrlencodedSet = copySet(componentSet);
-addEach(formUrlencodedSet, [0x21, 0x27, 0x28, 0x29, 0x7E]);
-
-// "percent-encode after encoding" with UTF-8.
-function utf8PercentEncodeString(input, set, spaceAsPlus) {
-  var out = "";
-  var bytes = encoding.utf8Encode(input);
-  for (var i = 0; i < bytes.length; i++) {
-    var b = bytes[i];
-    if (spaceAsPlus && b === 0x20) {
-      out += "+";
-      continue;
-    }
-    if (b < 0x80 && !set[b]) {
-      out += String.fromCharCode(b);
-    } else {
-      out += percentEncodeByte(b);
-    }
-  }
-  return out;
-}
-
-function percentDecodeBytes(bytes) {
-  var out = [];
-  for (var i = 0; i < bytes.length; i++) {
-    var b = bytes[i];
-    if (b !== 0x25) {
-      out.push(b);
-      continue;
-    }
-    var b1 = bytes[i + 1];
-    var b2 = bytes[i + 2];
-    if (b1 === undefined || b2 === undefined || !isASCIIHexDigit(b1) || !isASCIIHexDigit(b2)) {
-      out.push(b);
-      continue;
-    }
-    out.push(hexValue(b1) * 16 + hexValue(b2));
-    i += 2;
-  }
-  return out;
-}
-
-function percentDecodeString(input) {
-  return encoding.utf8Decode(percentDecodeBytes(encoding.utf8Encode(input)));
-}
-
-// ---------------------------------------------------------------------------
 // Hosts
 // ---------------------------------------------------------------------------
 var EMPTY_HOST = { type: "empty", value: "" };
 
-function containsForbiddenDomainCodePoint(str) {
-  var cps = codePoints(str);
-  for (var i = 0; i < cps.length; i++) {
-    var cp = cps[i];
-    if (cp <= 0x20 || cp === 0x7F || cp === 0x25) return true;
-    switch (cp) {
-      case 0x23: case 0x2F: case 0x3A: case 0x3C: case 0x3E: case 0x3F:
-      case 0x40: case 0x5B: case 0x5C: case 0x5D: case 0x5E: case 0x7C:
-        return true;
-    }
-  }
-  return false;
-}
-
-function containsForbiddenHostCodePoint(str) {
-  var cps = codePoints(str);
-  for (var i = 0; i < cps.length; i++) {
-    var cp = cps[i];
-    switch (cp) {
-      case 0x00: case 0x09: case 0x0A: case 0x0D: case 0x20: case 0x23:
-      case 0x2F: case 0x3A: case 0x3C: case 0x3E: case 0x3F: case 0x40:
-      case 0x5B: case 0x5C: case 0x5D: case 0x5E: case 0x7C:
-        return true;
-    }
-  }
-  return false;
-}
-
-function domainToASCII(domain, beStrict) {
-  return icu.toASCII(domain, beStrict);
-}
-
-function domainParser(domain, beStrict) {
-  var strictResult = domainToASCII(domain, true);
-  if (beStrict) {
-    if (strictResult === null) return null;
-    return strictResult;
-  }
-  var result;
-  if (isASCIIStr(domain)) {
-    result = asciiLowercase(domain);
-  } else {
-    result = domainToASCII(domain, false);
-    if (result === null) return null;
-  }
-  if (result === "") return null;
-  if (containsForbiddenDomainCodePoint(result)) return null;
-  return result;
-}
-
 function isWindowsDriveLetter(str) {
-  var cp = codePoints(str);
+  var cp = urlparse.codePoints(str);
   return cp.length === 2 && isASCIIAlpha(cp[0]) && (cp[1] === 0x3A || cp[1] === 0x7C);
 }
 function isNormalizedWindowsDriveLetter(str) {
-  var cp = codePoints(str);
+  var cp = urlparse.codePoints(str);
   return cp.length === 2 && isASCIIAlpha(cp[0]) && cp[1] === 0x3A;
 }
 function startsWithWindowsDriveLetter(str) {
-  var cp = codePoints(str);
+  var cp = urlparse.codePoints(str);
   if (cp.length < 2) return false;
   if (!isASCIIAlpha(cp[0])) return false;
   if (cp[1] !== 0x3A && cp[1] !== 0x7C) return false;
   if (cp.length === 2) return true;
   return cp[2] === 0x2F || cp[2] === 0x5C || cp[2] === 0x3F || cp[2] === 0x23;
-}
-
-// Returns [value, validationError] or null (failure).
-function ipv4NumberParser(input) {
-  if (input === "") return null;
-  var validationError = false;
-  var start = 0;
-  var radix = 10;
-  if (input.length >= 2 && (input.substring(0, 2) === "0X" || input.substring(0, 2) === "0x")) {
-    validationError = true;
-    start = 2;
-    radix = 16;
-  } else if (input.length >= 2 && input.charCodeAt(0) === 0x30) {
-    validationError = true;
-    start = 1;
-    radix = 8;
-  }
-  var body = input.substring(start);
-  if (body === "") return [0, true];
-  for (var i = 0; i < body.length; i++) {
-    var c = body.charCodeAt(i);
-    var valid = false;
-    if (c >= 0x30 && c <= 0x39 && c - 0x30 < radix) {
-      valid = true;
-    } else if (radix === 16 && ((c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66))) {
-      valid = true;
-    }
-    if (!valid) return null;
-  }
-  return [parseInt(body, radix), validationError];
-}
-
-function isAllASCIIDigits(str) {
-  if (str === "") return false;
-  for (var i = 0; i < str.length; i++) {
-    if (!isASCIIDigit(str.charCodeAt(i))) return false;
-  }
-  return true;
-}
-
-// Returns an IPv4 address (32-bit int) or null (failure).
-function ipv4Parser(input) {
-  var parts = input.split(".");
-  if (parts[parts.length - 1] === "") {
-    if (parts.length > 1) parts.pop();
-  }
-  if (parts.length > 4) return null;
-  var numbers = [];
-  for (var i = 0; i < parts.length; i++) {
-    var result = ipv4NumberParser(parts[i]);
-    if (result === null) return null;
-    numbers.push(result[0]);
-  }
-  for (var a = 0; a < numbers.length - 1; a++) {
-    if (numbers[a] > 255) return null;
-  }
-  if (numbers[numbers.length - 1] >= Math.pow(256, 5 - numbers.length)) return null;
-  var ipv4 = numbers[numbers.length - 1];
-  numbers.pop();
-  var counter = 0;
-  for (var b = 0; b < numbers.length; b++) {
-    ipv4 += numbers[b] * Math.pow(256, 3 - counter);
-    counter++;
-  }
-  return ipv4;
-}
-
-function endsInNumberChecker(input) {
-  var parts = input.split(".");
-  if (parts[parts.length - 1] === "") parts.pop();
-  var last = parts[parts.length - 1];
-  if (last !== "" && isAllASCIIDigits(last)) return true;
-  if (ipv4NumberParser(last) !== null) return true;
-  return false;
-}
-
-// Returns 8 pieces or null (failure).
-function ipv6Parser(input) {
-  var address = [0, 0, 0, 0, 0, 0, 0, 0];
-  var cps = codePoints(input);
-  var len = cps.length;
-  var pieceIndex = 0;
-  var compress = null;
-  var pointer = 0;
-
-  function cpAt(p) {
-    return p >= 0 && p < len ? cps[p] : EOF;
-  }
-  function remStartsColon() {
-    return pointer + 1 < len && cps[pointer + 1] === 0x3A;
-  }
-
-  if (cpAt(0) === 0x3A) {
-    if (!remStartsColon()) return null;
-    pointer += 2;
-    pieceIndex += 1;
-    compress = pieceIndex;
-  }
-
-  while (cpAt(pointer) !== EOF) {
-    if (pieceIndex === 8) return null;
-    var c = cpAt(pointer);
-    if (c === 0x3A) {
-      if (compress !== null) return null;
-      pointer += 1;
-      pieceIndex += 1;
-      compress = pieceIndex;
-      continue;
-    }
-    var value = 0;
-    var length = 0;
-    while (length < 4 && isASCIIHexDigit(cpAt(pointer))) {
-      value = value * 0x10 + hexValue(cpAt(pointer));
-      pointer += 1;
-      length += 1;
-    }
-    if (cpAt(pointer) === 0x2E) {
-      if (length === 0) return null;
-      pointer -= length;
-      if (pieceIndex > 6) return null;
-      var numbersSeen = 0;
-      while (cpAt(pointer) !== EOF) {
-        var ipv4Piece = null;
-        if (numbersSeen > 0) {
-          if (cpAt(pointer) === 0x2E && numbersSeen < 4) {
-            pointer += 1;
-          } else {
-            return null;
-          }
-        }
-        if (!isASCIIDigit(cpAt(pointer))) return null;
-        while (isASCIIDigit(cpAt(pointer))) {
-          var number = cpAt(pointer) - 0x30;
-          if (ipv4Piece === null) {
-            ipv4Piece = number;
-          } else if (ipv4Piece === 0) {
-            return null;
-          } else {
-            ipv4Piece = ipv4Piece * 10 + number;
-          }
-          if (ipv4Piece > 255) return null;
-          pointer += 1;
-        }
-        address[pieceIndex] = address[pieceIndex] * 0x100 + ipv4Piece;
-        numbersSeen += 1;
-        if (numbersSeen === 2 || numbersSeen === 4) pieceIndex += 1;
-      }
-      if (numbersSeen !== 4) return null;
-      break;
-    } else if (cpAt(pointer) === 0x3A) {
-      pointer += 1;
-      if (cpAt(pointer) === EOF) return null;
-    } else if (cpAt(pointer) !== EOF) {
-      return null;
-    }
-    address[pieceIndex] = value;
-    pieceIndex += 1;
-  }
-
-  if (compress !== null) {
-    var swaps = pieceIndex - compress;
-    pieceIndex = 7;
-    while (pieceIndex !== 0 && swaps > 0) {
-      var tmp = address[pieceIndex];
-      address[pieceIndex] = address[compress + swaps - 1];
-      address[compress + swaps - 1] = tmp;
-      pieceIndex -= 1;
-      swaps -= 1;
-    }
-  } else if (compress === null && pieceIndex !== 8) {
-    return null;
-  }
-  return address;
-}
-
-function findIpv6CompressedPieceIndex(pieces) {
-  var longestIndex = null;
-  var longestSize = 1;
-  var foundIndex = null;
-  var foundSize = 0;
-  for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
-    if (pieces[pieceIndex] !== 0) {
-      if (foundSize > longestSize) {
-        longestIndex = foundIndex;
-        longestSize = foundSize;
-      }
-      foundIndex = null;
-      foundSize = 0;
-    } else {
-      if (foundIndex === null) foundIndex = pieceIndex;
-      foundSize++;
-    }
-  }
-  if (foundSize > longestSize) return foundIndex;
-  return longestIndex;
-}
-
-function ipv4Serializer(address) {
-  var output = "";
-  var n = address;
-  for (var i = 1; i <= 4; i++) {
-    output = (n % 256) + output;
-    if (i !== 4) output = "." + output;
-    n = Math.floor(n / 256);
-  }
-  return output;
-}
-
-function ipv6Serializer(pieces) {
-  var output = "";
-  var compress = findIpv6CompressedPieceIndex(pieces);
-  var ignore0 = false;
-  for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
-    if (ignore0 && pieces[pieceIndex] === 0) continue;
-    if (ignore0) ignore0 = false;
-    if (compress === pieceIndex) {
-      var separator = pieceIndex === 0 ? "::" : ":";
-      output += separator;
-      ignore0 = true;
-      continue;
-    }
-    output += pieces[pieceIndex].toString(16);
-    if (pieceIndex !== 7) output += ":";
-  }
-  return output;
-}
-
-function opaqueHostParser(input) {
-  // Only a forbidden host code point is a failure; the other two checks are
-  // validation errors only (the input is still returned, C0-percent-encoded).
-  if (containsForbiddenHostCodePoint(input)) return null;
-  return utf8PercentEncodeString(input, c0ControlSet);
-}
-
-function hostParser(input, isOpaque) {
-  if (input.charAt(0) === "[") {
-    if (input.charAt(input.length - 1) !== "]") return null;
-    var pieces = ipv6Parser(input.substring(1, input.length - 1));
-    if (pieces === null) return null;
-    return { type: "ipv6", pieces: pieces };
-  }
-  if (isOpaque) {
-    var opaque = opaqueHostParser(input);
-    if (opaque === null) return null;
-    return { type: "opaque", value: opaque };
-  }
-  // Assert: input is not the empty string.
-  var domain = percentDecodeString(input);
-  var asciiDomain = domainParser(domain, false);
-  if (asciiDomain === null) return null;
-  if (endsInNumberChecker(asciiDomain)) {
-    var ipv4 = ipv4Parser(asciiDomain);
-    if (ipv4 === null) return null;
-    return { type: "ipv4", value: ipv4 };
-  }
-  return { type: "domain", value: asciiDomain };
-}
-
-function serializeHost(host) {
-  if (host === null || host === undefined) return "";
-  if (host.type === "ipv4") return ipv4Serializer(host.value);
-  if (host.type === "ipv6") return "[" + ipv6Serializer(host.pieces) + "]";
-  return host.value;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,7 +133,7 @@ function serializeURL(url, excludeFragment) {
       if (url.password !== "") output += ":" + url.password;
       output += "@";
     }
-    output += serializeHost(url.host);
+    output += urlparse.serializeHost(url.host);
     if (url.port !== null) output += ":" + url.port;
   }
   if (
@@ -629,7 +170,7 @@ function urlOrigin(url) {
 
 function serializeOrigin(origin) {
   if (origin === null) return "null";
-  var s = origin.scheme + "://" + serializeHost(origin.host);
+  var s = origin.scheme + "://" + urlparse.serializeHost(origin.host);
   if (origin.port !== null) s += ":" + origin.port;
   return s;
 }
@@ -664,7 +205,7 @@ const FRAGMENT = "fragment";
 function basicURLParser(input, base, url, stateOverride) {
   if (url === undefined || url === null) url = newURLRecord();
 
-  var cps = codePoints(input);
+  var cps = urlparse.codePoints(input);
   if (!stateOverride) {
     var s = 0;
     while (s < cps.length && isC0ControlOrSpace(cps[s])) s++;
@@ -684,6 +225,8 @@ function basicURLParser(input, base, url, stateOverride) {
   var atSignSeen = false;
   var insideBrackets = false;
   var passwordTokenSeen = false;
+  var fragmentBuffer = "";
+  var opaqueBuffer = "";
   var pointer = 0;
   var host;
 
@@ -862,16 +405,19 @@ function basicURLParser(input, base, url, stateOverride) {
         if (c === 0x40) {
           if (atSignSeen) buffer = "%40" + buffer;
           atSignSeen = true;
-          var bufCps = codePoints(buffer);
-          for (var ai = 0; ai < bufCps.length; ai++) {
-            var codePoint = bufCps[ai];
-            if (codePoint === 0x3A && !passwordTokenSeen) {
+          // The first ":" in the whole userinfo (across "@" chunks) separates
+          // username from password; everything after it goes to the password.
+          if (passwordTokenSeen) {
+            url.password += urlparse.percentEncode(buffer, "userinfo");
+          } else {
+            var colon = buffer.indexOf(":");
+            if (colon === -1) {
+              url.username += urlparse.percentEncode(buffer, "userinfo");
+            } else {
               passwordTokenSeen = true;
-              continue;
+              url.username += urlparse.percentEncode(buffer.substring(0, colon), "userinfo");
+              url.password += urlparse.percentEncode(buffer.substring(colon + 1), "userinfo");
             }
-            var enc = utf8PercentEncodeString(fromCodePoint(codePoint), userinfoSet);
-            if (passwordTokenSeen) url.password += enc;
-            else url.username += enc;
           }
           buffer = "";
         } else if (
@@ -879,7 +425,7 @@ function basicURLParser(input, base, url, stateOverride) {
           (urlIsSpecial(url) && c === 0x5C)
         ) {
           if (atSignSeen && buffer === "") return null;
-          pointer -= codePoints(buffer).length + 1;
+          pointer -= urlparse.codePoints(buffer).length + 1;
           buffer = "";
           state = HOST;
         } else {
@@ -895,8 +441,8 @@ function basicURLParser(input, base, url, stateOverride) {
         } else if (c === 0x3A && !insideBrackets) {
           if (buffer === "") return null;
           if (stateOverride && stateOverride === HOSTNAME) return null;
-          host = hostParser(buffer, !urlIsSpecial(url));
-          if (host === null) return null;
+          host = urlparse.parseHost(buffer, !urlIsSpecial(url));
+          if (host === undefined) return null;
           url.host = host;
           buffer = "";
           state = PORT;
@@ -912,8 +458,8 @@ function basicURLParser(input, base, url, stateOverride) {
           ) {
             return null;
           }
-          host = hostParser(buffer, !urlIsSpecial(url));
-          if (host === null) return null;
+          host = urlparse.parseHost(buffer, !urlIsSpecial(url));
+          if (host === undefined) return null;
           url.host = host;
           buffer = "";
           state = PATH_START;
@@ -1011,8 +557,8 @@ function basicURLParser(input, base, url, stateOverride) {
             if (stateOverride) return url;
             state = PATH_START;
           } else {
-            host = hostParser(buffer, !urlIsSpecial(url));
-            if (host === null) return null;
+            host = urlparse.parseHost(buffer, !urlIsSpecial(url));
+            if (host === undefined) return null;
             if (host.type === "domain" && host.value === "localhost") host = EMPTY_HOST;
             url.host = host;
             if (stateOverride) return url;
@@ -1047,19 +593,22 @@ function basicURLParser(input, base, url, stateOverride) {
           eof || c === 0x2F || (urlIsSpecial(url) && c === 0x5C) ||
           (!stateOverride && (c === 0x3F || c === 0x23))
         ) {
+          // Dot-segment checks run on the raw buffer: none of '.', '%', '2',
+          // 'e' are encoded by the path percent-encode set, so the raw and
+          // encoded forms agree on these comparisons.
           if (buffer === ".." || isDoubleDotSegment(buffer)) {
             shortenPath(url);
             if (!(c === 0x2F || (urlIsSpecial(url) && c === 0x5C))) url.path.push("");
           } else if (
-            (buffer === "." || buffer.toLowerCase() === "%2e") &&
+            isSingleDotSegment(buffer) &&
             !(c === 0x2F || (urlIsSpecial(url) && c === 0x5C))
           ) {
             url.path.push("");
-          } else if (!(buffer === "." || buffer.toLowerCase() === "%2e")) {
+          } else if (!isSingleDotSegment(buffer)) {
             if (url.scheme === "file" && url.path.length === 0 && isWindowsDriveLetter(buffer)) {
               buffer = buffer.substring(0, 1) + ":";
             }
-            url.path.push(buffer);
+            url.path.push(urlparse.percentEncode(buffer, "path"));
           }
           buffer = "";
           if (c === 0x3F) {
@@ -1071,29 +620,34 @@ function basicURLParser(input, base, url, stateOverride) {
             state = FRAGMENT;
           }
         } else {
-          buffer += utf8PercentEncodeString(fromCodePoint(c), pathSet);
+          buffer += fromCodePoint(c);
         }
         break;
 
       case CANNOT_BE_BASE:
         if (c === 0x3F) {
+          url.path += urlparse.percentEncode(opaqueBuffer, "c0-control");
+          opaqueBuffer = "";
           url.query = "";
           state = QUERY;
         } else if (c === 0x23) {
+          url.path += urlparse.percentEncode(opaqueBuffer, "c0-control");
+          opaqueBuffer = "";
           url.fragment = "";
           state = FRAGMENT;
         } else if (c === 0x20) {
-          if (remStartsOr("?#")) url.path += "%20";
-          else url.path += " ";
+          if (remStartsOr("?#")) opaqueBuffer += "%20";
+          else opaqueBuffer += " ";
         } else if (!eof) {
-          url.path += utf8PercentEncodeString(fromCodePoint(c), c0ControlSet);
+          opaqueBuffer += fromCodePoint(c);
+        } else {
+          url.path += urlparse.percentEncode(opaqueBuffer, "c0-control");
         }
         break;
 
       case QUERY:
         if (eof || (!stateOverride && c === 0x23)) {
-          var qset = urlIsSpecial(url) ? specialQuerySet : querySet;
-          url.query += utf8PercentEncodeString(buffer, qset);
+          url.query += urlparse.percentEncode(buffer, urlIsSpecial(url) ? "special-query" : "query");
           buffer = "";
           if (c === 0x23) {
             url.fragment = "";
@@ -1106,7 +660,9 @@ function basicURLParser(input, base, url, stateOverride) {
 
       case FRAGMENT:
         if (!eof) {
-          url.fragment += utf8PercentEncodeString(fromCodePoint(c), fragmentSet);
+          fragmentBuffer += fromCodePoint(c);
+        } else {
+          url.fragment += urlparse.percentEncode(fragmentBuffer, "fragment");
         }
         break;
     }
@@ -1127,69 +683,6 @@ function isDoubleDotSegment(buffer) {
 }
 
 // ---------------------------------------------------------------------------
-// application/x-www-form-urlencoded
-// ---------------------------------------------------------------------------
-function splitBytes(bytes, sep) {
-  var out = [];
-  var start = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] === sep) {
-      out.push(bytes.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(bytes.slice(start));
-  return out;
-}
-function indexOfByte(bytes, target) {
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] === target) return i;
-  }
-  return -1;
-}
-function replaceByte(bytes, from, to) {
-  var out = [];
-  for (var i = 0; i < bytes.length; i++) out.push(bytes[i] === from ? to : bytes[i]);
-  return out;
-}
-
-// "urlencoded string parser"
-function urlencodedStringParser(input) {
-  var bytes = encoding.utf8Encode(input);
-  var sequences = splitBytes(bytes, 0x26);
-  var output = [];
-  for (var i = 0; i < sequences.length; i++) {
-    var b = sequences[i];
-    if (b.length === 0) continue;
-    var name, value;
-    var eq = indexOfByte(b, 0x3D);
-    if (eq !== -1) {
-      name = b.slice(0, eq);
-      value = b.slice(eq + 1);
-    } else {
-      name = b;
-      value = [];
-    }
-    name = replaceByte(name, 0x2B, 0x20);
-    value = replaceByte(value, 0x2B, 0x20);
-    output.push([encoding.utf8Decode(percentDecodeBytes(name)), encoding.utf8Decode(percentDecodeBytes(value))]);
-  }
-  return output;
-}
-
-// "urlencoded serializer"
-function urlencodedSerializer(tuples) {
-  var output = "";
-  for (var i = 0; i < tuples.length; i++) {
-    var name = utf8PercentEncodeString(tuples[i][0], formUrlencodedSet, true);
-    var value = utf8PercentEncodeString(tuples[i][1], formUrlencodedSet, true);
-    if (output !== "") output += "&";
-    output += name + "=" + value;
-  }
-  return output;
-}
-
-// ---------------------------------------------------------------------------
 // URLSearchParams
 // ---------------------------------------------------------------------------
 function isInterfacePrototype(value) {
@@ -1204,7 +697,7 @@ function URLSearchParams(init) {
   if (init === undefined || init === null) return;
   if (typeof init === "string") {
     var s = init.charAt(0) === "?" ? init.substring(1) : init;
-    this._list = urlencodedStringParser(s);
+    this._list = urlparse.urlencodedParse(s);
     return;
   }
   if (Array.isArray(init)) {
@@ -1213,7 +706,7 @@ function URLSearchParams(init) {
       if (!Array.isArray(inner) || inner.length !== 2) {
         throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
       }
-      this._list.push([toUSVString(inner[0]), toUSVString(inner[1])]);
+      this._list.push([urlparse.toUSVString(inner[0]), urlparse.toUSVString(inner[1])]);
     }
     return;
   }
@@ -1227,7 +720,7 @@ function URLSearchParams(init) {
         if (!Array.isArray(pair) || pair.length !== 2) {
           throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
         }
-        this._list.push([toUSVString(pair[0]), toUSVString(pair[1])]);
+        this._list.push([urlparse.toUSVString(pair[0]), urlparse.toUSVString(pair[1])]);
       }
       return;
     }
@@ -1238,8 +731,8 @@ function URLSearchParams(init) {
     var list = [];
     var indices = {};
     for (var k = 0; k < keys.length; k++) {
-      var name = toUSVString(keys[k]);
-      var value = toUSVString(init[keys[k]]);
+      var name = urlparse.toUSVString(keys[k]);
+      var value = urlparse.toUSVString(init[keys[k]]);
       if (Object.prototype.hasOwnProperty.call(indices, name)) {
         list[indices[name]][1] = value;
       } else {
@@ -1250,25 +743,25 @@ function URLSearchParams(init) {
     this._list = list;
     return;
   }
-  this._list = urlencodedStringParser(toUSVString(init));
+  this._list = urlparse.urlencodedParse(urlparse.toUSVString(init));
 }
 
 URLSearchParams.prototype._update = function () {
   if (this._urlObject === null) return;
-  var serializedQuery = urlencodedSerializer(this._list);
+  var serializedQuery = urlparse.urlencodedSerialize(this._list);
   if (serializedQuery === "") serializedQuery = null;
   this._urlObject._url.query = serializedQuery;
 };
 
 URLSearchParams.prototype.append = function (name, value) {
-  this._list.push([toUSVString(name), toUSVString(value)]);
+  this._list.push([urlparse.toUSVString(name), urlparse.toUSVString(value)]);
   this._update();
 };
 
 URLSearchParams.prototype.delete = function (name, value) {
   var hasValue = arguments.length > 1 && value !== undefined;
-  name = toUSVString(name);
-  var compareValue = hasValue ? toUSVString(value) : null;
+  name = urlparse.toUSVString(name);
+  var compareValue = hasValue ? urlparse.toUSVString(value) : null;
   var newList = [];
   for (var i = 0; i < this._list.length; i++) {
     var t = this._list[i];
@@ -1280,7 +773,7 @@ URLSearchParams.prototype.delete = function (name, value) {
 };
 
 URLSearchParams.prototype.get = function (name) {
-  name = toUSVString(name);
+  name = urlparse.toUSVString(name);
   for (var i = 0; i < this._list.length; i++) {
     if (this._list[i][0] === name) return this._list[i][1];
   }
@@ -1288,7 +781,7 @@ URLSearchParams.prototype.get = function (name) {
 };
 
 URLSearchParams.prototype.getAll = function (name) {
-  name = toUSVString(name);
+  name = urlparse.toUSVString(name);
   var out = [];
   for (var i = 0; i < this._list.length; i++) {
     if (this._list[i][0] === name) out.push(this._list[i][1]);
@@ -1298,8 +791,8 @@ URLSearchParams.prototype.getAll = function (name) {
 
 URLSearchParams.prototype.has = function (name, value) {
   var hasValue = arguments.length > 1 && value !== undefined;
-  name = toUSVString(name);
-  var compareValue = hasValue ? toUSVString(value) : null;
+  name = urlparse.toUSVString(name);
+  var compareValue = hasValue ? urlparse.toUSVString(value) : null;
   for (var i = 0; i < this._list.length; i++) {
     var t = this._list[i];
     if (t[0] === name && (!hasValue || t[1] === compareValue)) return true;
@@ -1308,8 +801,8 @@ URLSearchParams.prototype.has = function (name, value) {
 };
 
 URLSearchParams.prototype.set = function (name, value) {
-  name = toUSVString(name);
-  value = toUSVString(value);
+  name = urlparse.toUSVString(name);
+  value = urlparse.toUSVString(value);
   var found = false;
   var newList = [];
   for (var i = 0; i < this._list.length; i++) {
@@ -1373,7 +866,7 @@ URLSearchParams.prototype[Symbol.iterator] = function () {
 };
 
 URLSearchParams.prototype.toString = function () {
-  return urlencodedSerializer(this._list);
+  return urlparse.urlencodedSerialize(this._list);
 };
 
 // ---------------------------------------------------------------------------
@@ -1392,7 +885,7 @@ function initializeURL(self, parsedRecord) {
   self._url = parsedRecord;
   self._searchParams = new URLSearchParams();
   if (parsedRecord.query !== null) {
-    self._searchParams._list = urlencodedStringParser(parsedRecord.query);
+    self._searchParams._list = urlparse.urlencodedParse(parsedRecord.query);
   }
   self._searchParams._urlObject = self;
 }
@@ -1438,7 +931,7 @@ Object.defineProperty(URL.prototype, "href", {
     this._url = parsed;
     this._searchParams._list = [];
     if (this._url.query !== null) {
-      this._searchParams._list = urlencodedStringParser(this._url.query);
+      this._searchParams._list = urlparse.urlencodedParse(this._url.query);
     }
   },
   enumerable: true,
@@ -1470,7 +963,7 @@ Object.defineProperty(URL.prototype, "username", {
   },
   set: function (value) {
     if (urlCannotHaveUsernamePasswordPort(this._url)) return;
-    this._url.username = utf8PercentEncodeString(String(value), userinfoSet);
+    this._url.username = urlparse.percentEncode(String(value), "userinfo");
   },
   enumerable: true,
   configurable: true,
@@ -1482,7 +975,7 @@ Object.defineProperty(URL.prototype, "password", {
   },
   set: function (value) {
     if (urlCannotHaveUsernamePasswordPort(this._url)) return;
-    this._url.password = utf8PercentEncodeString(String(value), userinfoSet);
+    this._url.password = urlparse.percentEncode(String(value), "userinfo");
   },
   enumerable: true,
   configurable: true,
@@ -1492,8 +985,8 @@ Object.defineProperty(URL.prototype, "host", {
   get: function () {
     var url = this._url;
     if (url.host === null) return "";
-    if (url.port === null) return serializeHost(url.host);
-    return serializeHost(url.host) + ":" + url.port;
+    if (url.port === null) return urlparse.serializeHost(url.host);
+    return urlparse.serializeHost(url.host) + ":" + url.port;
   },
   set: function (value) {
     if (urlHasOpaquePath(this._url)) return;
@@ -1506,7 +999,7 @@ Object.defineProperty(URL.prototype, "host", {
 Object.defineProperty(URL.prototype, "hostname", {
   get: function () {
     if (this._url.host === null) return "";
-    return serializeHost(this._url.host);
+    return urlparse.serializeHost(this._url.host);
   },
   set: function (value) {
     if (urlHasOpaquePath(this._url)) return;
@@ -1563,7 +1056,7 @@ Object.defineProperty(URL.prototype, "search", {
     var input = value.charAt(0) === "?" ? value.substring(1) : value;
     url.query = "";
     basicURLParser(input, null, url, QUERY);
-    this._searchParams._list = urlencodedStringParser(url.query);
+    this._searchParams._list = urlparse.urlencodedParse(url.query);
   },
   enumerable: true,
   configurable: true,

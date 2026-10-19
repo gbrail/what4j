@@ -81,7 +81,8 @@ public class Encoding {
     };
   }
 
-  static byte[] utf8EncodeBytes(String str) {
+  /** The spec's "UTF-8 encode" (unpaired surrogates become U+FFFD). */
+  public static byte[] utf8EncodeBytes(String str) {
     var out = new ByteArrayOutputStream();
     int i = 0;
     while (i < str.length()) {

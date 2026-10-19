@@ -7,7 +7,7 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
 
 @TestBaseDir(
     value = "wpt/encoding",
-    suffixes = {".any.js"},
+    suffixes = {".any.js", ".html"},
     exclude = {
       "streams/",
       "idlharness.any.js",

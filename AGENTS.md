@@ -12,10 +12,12 @@ Correctness is verified by running the corresponding tests from the
 submodule at `wpt/`) inside Rhino via a JUnit 5 harness.
 
 The URL standard is implemented in `core/scripts/url.js` as pure JavaScript
-(see "JavaScript dialect" below). Parts that are not pure JS are exposed as
-Java bindings: IDNA uses ICU4J via the `ICU` binding, and UTF-8 encoding/
-decoding for URL and the Encoding API uses the `Encoding` binding. JS modules
-obtain bindings with `getBinding("<name>")`.
+(see "JavaScript dialect" below), with its self-contained string/byte
+algorithms (percent-encoding, host parsing/serialization, urlencoded
+parse/serialize, `toUSVString`) in the `url` Java binding. Other non-pure-JS
+parts are exposed as Java bindings too: IDNA uses ICU4J via the `ICU`
+binding, and UTF-8 encoding/decoding for URL and the Encoding API uses the
+`Encoding` binding. JS modules obtain bindings with `getBinding("<name>")`.
 
 WPT coverage note: selected `wpt/url/*.any.js`, `wpt/urlpattern/*.any.js`,
 and `wpt/encoding/*.any.js` files run today (the root `BUILD.bazel` filegroups
@@ -54,9 +56,11 @@ Key concepts:
   `<Name>Module.java` + `scripts/<name>.js` pattern and may implement the
   `LoadableModule` interface.
 - A **Java binding** is a Java object registered in `BindingsLoader` for
-  functionality that must live on the JVM (see `ICU` for ICU4J-based IDNA and
-  `Encoding` for UTF-8/UTF-16 codecs). JS module code obtains it with
-  `getBinding("<name>")` and calls it like any global object.
+  functionality that must live on the JVM (see `ICU` for ICU4J-based IDNA,
+  `Encoding` for UTF-8/UTF-16 codecs, and `Url` for the URL standard's
+  percent-encoding, host, and urlencoded algorithms, implemented in
+  `bindings/url/`). JS module code obtains it with `getBinding("<name>")` and
+  calls it like any global object.
 - A **test** is a JUnit class under `core/test/` extending
   `testrunner.BaseTest`, annotated with `@TestBaseDir("wpt/<area>")` to select
   which WPT test files to run, overriding `initializeLauncher(...)` to set a

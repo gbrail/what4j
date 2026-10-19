@@ -25,6 +25,11 @@ public abstract class Decoder {
     return process(bytes, doNotFlush);
   }
 
+  /** One-shot decode of raw bytes (used by the URL standard's raw UTF-8 decode). */
+  public final String decodeBytes(byte[] bytes) {
+    return process(bytes, false);
+  }
+
   protected abstract String process(byte[] input, boolean doNotFlush);
 
   protected void emit(StringBuilder out, int codePoint) {
