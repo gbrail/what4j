@@ -75,6 +75,9 @@ filegroup(
             "wpt/encoding/resources/*.js",
             "wpt/hr-time/*.any.js",
             "wpt/js/builtins/*.js",
+            "wpt/streams/*.any.js",
+            "wpt/streams/readable-streams/*.any.js",
+            "wpt/streams/resources/*.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
             "wpt/urlpattern/resources/*.js",
@@ -92,6 +95,23 @@ filegroup(
             "wpt/urlpattern/*.https.any.js",
             # Tentative URLPattern APIs are not implemented yet.
             "wpt/urlpattern/*tentative*",
+            # Needs the WebIDL test harness (wpt/resources/idlharness.js,
+            # WebIDLParser.js), which is not wired up yet.
+            "wpt/streams/idlharness.any.js",
+            # Needs async generator support, which Babel leaves untranspiled
+            # and the pinned Rhino build cannot parse.
+            "wpt/streams/readable-streams/async-iterator.any.js",
+            "wpt/streams/readable-streams/from.any.js",
+            # Needs a GC trigger hook (wpt/common/gc.js), which is not
+            # available in Rhino.
+            "wpt/streams/readable-streams/garbage-collection.any.js",
+            # Needs pipeTo/pipeThrough (WritableStream), which is not
+            # implemented yet.
+            "wpt/streams/readable-streams/patched-global.any.js",
+            "wpt/streams/readable-streams/reentrant-strategies.any.js",
+            "wpt/streams/readable-streams/templated.any.js",
+            # Tentative ReadableStream APIs are not implemented yet.
+            "wpt/streams/readable-streams/owning-type*",
         ],
     ),
 )

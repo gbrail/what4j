@@ -5,8 +5,8 @@ Guidance for AI assistants (and humans) working in this repository.
 ## What this project is
 
 What4j implements WHATWG web standards (URL, URLPattern, a partial Encoding
-API, and a minimal Performance object per High Resolution Time, and
-eventually more) as JavaScript that runs on [Mozilla
+API, a minimal Performance object per High Resolution Time, readable
+streams, and eventually more) as JavaScript that runs on [Mozilla
 Rhino](https://github.com/mozilla/rhino), a JavaScript engine written in Java.
 Correctness is verified by running the corresponding tests from the
 [web-platform-tests](https://github.com/web-platform-tests/wpt) suite (a git
@@ -24,14 +24,20 @@ uses the `performance` binding. JS modules obtain bindings with
 `getBinding("<name>")`.
 
 WPT coverage note: selected `wpt/url/*.any.js`, `wpt/urlpattern/*.any.js`,
-`wpt/encoding/*.any.js`, and `wpt/hr-time/*.any.js` files run today (the root
-`BUILD.bazel` filegroups and each test class's `@TestBaseDir` annotations
-select what is available). HTML and `.window.js` tests (which need a DOM) and
+`wpt/encoding/*.any.js`, `wpt/hr-time/*.any.js`, and non-byte
+`wpt/streams` readable-stream files run today (the root `BUILD.bazel`
+filegroups and each test class's `@TestBaseDir` annotations select what is
+available). HTML and `.window.js` tests (which need a DOM) and
 `idlharness.any.js` (needs the WebIDL test harness) are intentionally
 excluded for now. Legacy single-byte/multi-byte encodings,
 `TextEncoder.prototype.encodeInto`, and encoding streams are also excluded
 for now. The rest of the Performance Timeline API (User Timing entries,
-`PerformanceObserver`) is not implemented.
+`PerformanceObserver`) is not implemented. For streams, readable byte
+streams, writable streams, transform streams, and piping are not implemented
+yet, and the readable-streams tests that need async generator syntax (which
+the current Babel setup leaves untranspiled and Rhino cannot parse), GC
+hooks, or pipeTo/pipeThrough are excluded (see the comments in the root
+`BUILD.bazel` filegroup and in `StreamsTest`).
 
 ## Repository layout
 
@@ -49,7 +55,7 @@ testrunner/      Test infrastructure shared by all tests
   test/          Smoke tests + small HTML/JS test fixtures (test/html, test/pass_tests)
   testdata/      Test data files
 babel/           Babel config used to preprocess modern-syntax WPT test files
-specs/           Spec sources (e.g. url.bs, urlpattern.bs, and encoding.bs in Bikeshed)
+specs/           Spec sources (e.g. url.bs, urlpattern.bs, encoding.bs, and streams.bs in Bikeshed)
 wpt/             git submodule: web-platform-tests (test cases, read-only reference)
 ```
 
@@ -136,6 +142,7 @@ bazel test //testrunner:smoke_test    # testrunner infrastructure smoke test
 bazel test //core:core_tests_UrlTest  # WPT url/ cases against the URL implementation
 bazel test //core:core_tests_CoreTest # WPT js/builtins cases
 bazel test //core:core_tests_EncodingTest # WPT encoding/ cases against the Encoding API
+bazel test //core:core_tests_StreamsTest # WPT streams/ readable-stream cases
 ```
 
 Notes:

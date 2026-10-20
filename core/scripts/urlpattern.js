@@ -14,8 +14,8 @@ var UP_COMPONENTS = [
   "hash",
 ];
 
-var UP_ID_START_RE = new RegExp("\\p{ID_Start}", "u");
-var UP_ID_CONTINUE_RE = new RegExp("\\p{ID_Continue}", "u");
+const UP_ID_START_RE = new RegExp("\\p{ID_Start}", "u");
+const UP_ID_CONTINUE_RE = new RegExp("\\p{ID_Continue}", "u");
 
 // ---------------------------------------------------------------------------
 // Code point helpers
@@ -26,12 +26,12 @@ function upCodePointLength(str) {
 }
 
 function upCodePointAt(str, index) {
-  var cps = urlparse.codePoints(str);
+  const cps = urlparse.codePoints(str);
   return index >= 0 && index < cps.length ? cps[index] : undefined;
 }
 
 function upCodePointSubstring(str, start, end) {
-  var cps = urlparse.codePoints(str);
+  const cps = urlparse.codePoints(str);
   if (start < 0) start = 0;
   if (end > cps.length) end = cps.length;
   var out = "";
@@ -46,7 +46,7 @@ function upCodePointSubstringToEnd(str, start) {
 }
 
 function upLastIndexOfCodePoint(str, cp) {
-  var cps = urlparse.codePoints(str);
+  const cps = urlparse.codePoints(str);
   for (var i = cps.length - 1; i >= 0; i--) {
     if (cps[i] === cp) return i;
   }
@@ -55,7 +55,7 @@ function upLastIndexOfCodePoint(str, cp) {
 
 function upCodePointEquals(cp, str) {
   if (str.length === 0) return false;
-  var cps = urlparse.codePoints(str);
+  const cps = urlparse.codePoints(str);
   return cps.length === 1 && cps[0] === cp;
 }
 
@@ -86,7 +86,7 @@ function upIsValidNameCodePoint(cp, first) {
 function upEscapeRegExpString(input) {
   var out = "";
   for (var i = 0; i < input.length; i++) {
-    var c = input.charAt(i);
+    const c = input.charAt(i);
     if (
       c === "." ||
       c === "+" ||
@@ -114,7 +114,7 @@ function upEscapeRegExpString(input) {
 function upEscapePatternString(input) {
   var out = "";
   for (var i = 0; i < input.length; i++) {
-    var c = input.charAt(i);
+    const c = input.charAt(i);
     if (
       c === "+" ||
       c === "*" ||
@@ -171,7 +171,7 @@ function upTokenize(input, policy) {
   }
 
   while (i < cps.length) {
-    var cp = cps[i];
+    const cp = cps[i];
 
     if (cp === 0x2a) {
       addTokenWithDefaultPositionAndLength("asterisk");
@@ -188,7 +188,7 @@ function upTokenize(input, policy) {
         processTokenizingError(i + 1, i);
         continue;
       }
-      var escapedIndex = i + 1;
+      const escapedIndex = i + 1;
       addTokenAt("escaped-char", i, i + 2, escapedIndex, 1);
       continue;
     }
@@ -207,7 +207,7 @@ function upTokenize(input, policy) {
       var namePosition = i + 1;
       var nameStart = i + 1;
       while (namePosition < cps.length) {
-        var first = namePosition === nameStart;
+        const first = namePosition === nameStart;
         if (!upIsValidNameCodePoint(cps[namePosition], first)) break;
         namePosition++;
       }
@@ -226,7 +226,7 @@ function upTokenize(input, policy) {
       var error = false;
 
       while (regexpPosition < cps.length) {
-        var rcp = cps[regexpPosition];
+        const rcp = cps[regexpPosition];
 
         if (rcp > 0x7f) {
           processTokenizingError(regexpStart, i);
@@ -284,7 +284,7 @@ function upTokenize(input, policy) {
         continue;
       }
 
-      var regexpLength = regexpPosition - regexpStart - 1;
+      const regexpLength = regexpPosition - regexpStart - 1;
       if (regexpLength === 0) {
         processTokenizingError(regexpStart, i);
         continue;
@@ -323,20 +323,20 @@ function upGenerateSegmentWildcardRegexp(options) {
 
 function upTryConsumeToken(parser, type) {
   if (parser.index >= parser.tokens.length) return null;
-  var token = parser.tokens[parser.index];
+  const token = parser.tokens[parser.index];
   if (token.type !== type) return null;
   parser.index++;
   return token;
 }
 
 function upTryConsumeModifierToken(parser) {
-  var token = upTryConsumeToken(parser, "other-modifier");
+  const token = upTryConsumeToken(parser, "other-modifier");
   if (token !== null) return token;
   return upTryConsumeToken(parser, "asterisk");
 }
 
 function upTryConsumeRegexpOrWildcardToken(parser, nameToken) {
-  var token = upTryConsumeToken(parser, "regexp");
+  let token = upTryConsumeToken(parser, "regexp");
   if (nameToken === null && token === null) {
     token = upTryConsumeToken(parser, "asterisk");
   }
@@ -344,7 +344,7 @@ function upTryConsumeRegexpOrWildcardToken(parser, nameToken) {
 }
 
 function upConsumeRequiredToken(parser, type) {
-  var result = upTryConsumeToken(parser, type);
+  const result = upTryConsumeToken(parser, type);
   if (result === null) throw new TypeError("Invalid pattern string");
   return result;
 }
@@ -352,7 +352,7 @@ function upConsumeRequiredToken(parser, type) {
 function upConsumeText(parser) {
   var result = "";
   for (;;) {
-    var token = upTryConsumeToken(parser, "char");
+    let token = upTryConsumeToken(parser, "char");
     if (token === null) token = upTryConsumeToken(parser, "escaped-char");
     if (token === null) break;
     result += token.value;
@@ -362,7 +362,7 @@ function upConsumeText(parser) {
 
 function upMaybeAddPartFromPendingFixedValue(parser) {
   if (parser.pendingFixed === "") return;
-  var encoded = parser.encodingCallback(parser.pendingFixed);
+  const encoded = parser.encodingCallback(parser.pendingFixed);
   parser.pendingFixed = "";
   parser.partList.push({
     type: "fixed-text",
@@ -398,7 +398,7 @@ function upAddPart(parser, prefix, nameToken, regexpOrWildcardToken, suffix, mod
 
   if (nameToken === null && regexpOrWildcardToken === null) {
     if (prefix === "") return;
-    var encodedPrefix = parser.encodingCallback(prefix);
+    const encodedPrefix = parser.encodingCallback(prefix);
     parser.partList.push({
       type: "fixed-text",
       value: encodedPrefix,
@@ -440,8 +440,8 @@ function upAddPart(parser, prefix, nameToken, regexpOrWildcardToken, suffix, mod
     throw new TypeError("Duplicate pattern group name");
   }
 
-  var encodedPrefix = parser.encodingCallback(prefix);
-  var encodedSuffix = parser.encodingCallback(suffix);
+  const encodedPrefix = parser.encodingCallback(prefix);
+  const encodedSuffix = parser.encodingCallback(suffix);
 
   parser.partList.push({
     type: type,
@@ -454,8 +454,8 @@ function upAddPart(parser, prefix, nameToken, regexpOrWildcardToken, suffix, mod
 }
 
 function upParsePatternString(input, options, encodingCallback) {
-  var tokens = upTokenize(input, "strict");
-  var parser = {
+  const tokens = upTokenize(input, "strict");
+  const parser = {
     tokens: tokens,
     index: 0,
     pendingFixed: "",
@@ -466,9 +466,9 @@ function upParsePatternString(input, options, encodingCallback) {
   };
 
   while (parser.index < parser.tokens.length) {
-    var charToken = upTryConsumeToken(parser, "char");
-    var nameToken = upTryConsumeToken(parser, "name");
-    var regexpOrWildcardToken = upTryConsumeRegexpOrWildcardToken(
+    const charToken = upTryConsumeToken(parser, "char");
+    const nameToken = upTryConsumeToken(parser, "name");
+    const regexpOrWildcardToken = upTryConsumeRegexpOrWildcardToken(
       parser,
       nameToken
     );
@@ -481,7 +481,7 @@ function upParsePatternString(input, options, encodingCallback) {
         prefix = "";
       }
       upMaybeAddPartFromPendingFixedValue(parser);
-      var modifierToken = upTryConsumeModifierToken(parser);
+      const modifierToken = upTryConsumeModifierToken(parser);
       upAddPart(parser, prefix, nameToken, regexpOrWildcardToken, "", modifierToken);
       continue;
     }
@@ -497,15 +497,15 @@ function upParsePatternString(input, options, encodingCallback) {
 
     var openToken = upTryConsumeToken(parser, "open");
     if (openToken !== null) {
-      var groupPrefix = upConsumeText(parser);
-      var groupNameToken = upTryConsumeToken(parser, "name");
-      var groupRegexpOrWildcardToken = upTryConsumeRegexpOrWildcardToken(
+      const groupPrefix = upConsumeText(parser);
+      const groupNameToken = upTryConsumeToken(parser, "name");
+      const groupRegexpOrWildcardToken = upTryConsumeRegexpOrWildcardToken(
         parser,
         groupNameToken
       );
-      var groupSuffix = upConsumeText(parser);
+      const groupSuffix = upConsumeText(parser);
       upConsumeRequiredToken(parser, "close");
-      var groupModifierToken = upTryConsumeModifierToken(parser);
+      const groupModifierToken = upTryConsumeModifierToken(parser);
       upAddPart(
         parser,
         groupPrefix,
@@ -535,7 +535,7 @@ function upSanitizeCustomRegexp(input) {
   var inClass = false;
 
   while (i < cps.length) {
-    var cp = cps[i];
+    const cp = cps[i];
 
     if (cp === 0x5c) {
       if (i + 1 < cps.length) {
@@ -585,7 +585,7 @@ function upSanitizeCustomRegexp(input) {
           if (upIsIdentifierStart(after)) {
             var j = i + 3;
             while (j < cps.length) {
-              var c = cps[j];
+              const c = cps[j];
               if (c === 0x3e) break;
               if (!upIsIdentifierPart(c)) break;
               j++;
@@ -617,7 +617,7 @@ function upClassHasSetOperation(inner) {
   if (i < inner.length && inner.charAt(i) === "]") i++;
   var depth = 0;
   while (i < inner.length) {
-    var c = inner.charAt(i);
+    const c = inner.charAt(i);
     if (c === "\\") {
       i += 2;
       continue;
@@ -638,13 +638,13 @@ function upClassHasSetOperation(inner) {
 }
 
 function upNewClassSet() {
-  var set = [];
+  const set = [];
   for (var i = 0; i < 128; i++) set.push(false);
   return set;
 }
 
 function upClassSetFromChar(set, ch) {
-  var code = ch.charCodeAt(0);
+  const code = ch.charCodeAt(0);
   if (code >= 0 && code < 128) set[code] = true;
   return set;
 }
@@ -653,7 +653,7 @@ function upClassSetFromRange(set, a, b) {
   var start = a.charCodeAt(0);
   var end = b.charCodeAt(0);
   if (start > end) {
-    var t = start;
+    const t = start;
     start = end;
     end = t;
   }
@@ -662,13 +662,13 @@ function upClassSetFromRange(set, a, b) {
 }
 
 function upClassSetDifference(a, b) {
-  var out = upNewClassSet();
+  const out = upNewClassSet();
   for (var i = 0; i < 128; i++) out[i] = a[i] && !b[i];
   return out;
 }
 
 function upClassSetIntersection(a, b) {
-  var out = upNewClassSet();
+  const out = upNewClassSet();
   for (var i = 0; i < 128; i++) out[i] = a[i] && b[i];
   return out;
 }
@@ -686,9 +686,9 @@ function upClassSetToString(set) {
       i++;
       continue;
     }
-    var start = i;
+    const start = i;
     while (i < 128 && set[i]) i++;
-    var end = i - 1;
+    const end = i - 1;
     if (start === end) {
       out += upEscapeClassChar(String.fromCharCode(start));
     } else {
@@ -708,7 +708,7 @@ function upClassFindMatchingClose(inner) {
   if (i < inner.length && inner.charAt(i) === "]") i++;
   var depth = 1;
   while (i < inner.length) {
-    var c = inner.charAt(i);
+    const c = inner.charAt(i);
     if (c === "\\") {
       i += 2;
       continue;
@@ -736,26 +736,26 @@ function upClassOperandToSet(s, pos) {
   if (pos >= s.length) throw new TypeError("Invalid regular expression");
 
   if (s.charAt(pos) === "[") {
-    var end = upClassFindMatchingClose(s.substring(pos + 1));
+    const end = upClassFindMatchingClose(s.substring(pos + 1));
     if (end === -1) throw new TypeError("Invalid regular expression");
-    var inner = s.substring(pos + 1, pos + 1 + end);
+    const inner = s.substring(pos + 1, pos + 1 + end);
     return { set: upClassInnerToSet(inner), pos: pos + 2 + end };
   }
 
   if (s.charAt(pos) === "\\") {
     if (pos + 1 >= s.length) throw new TypeError("Invalid regular expression");
-    var next = s.charAt(pos + 1);
+    const next = s.charAt(pos + 1);
     if (next === "d") {
-      var set = upNewClassSet();
+      const set = upNewClassSet();
       for (var d = 48; d <= 57; d++) set[d] = true;
       return { set: set, pos: pos + 2 };
     }
-    var single = upClassReadChar(s, pos);
+    const single = upClassReadChar(s, pos);
     return { set: upClassSetFromChar(upNewClassSet(), single.ch), pos: single.pos };
   }
 
-  var start = upClassReadChar(s, pos);
-  var set2 = upNewClassSet();
+  const start = upClassReadChar(s, pos);
+  const set2 = upNewClassSet();
   upClassSetFromChar(set2, start.ch);
   pos = start.pos;
 
@@ -765,7 +765,7 @@ function upClassOperandToSet(s, pos) {
     pos + 2 < s.length &&
     s.charAt(pos + 2) !== "]"
   ) {
-    var endChar = upClassReadChar(s, pos + 2);
+    const endChar = upClassReadChar(s, pos + 2);
     upClassSetFromRange(set2, start.ch, endChar.ch);
     pos = endChar.pos;
   }
@@ -779,11 +779,11 @@ function upClassParseExpressionHelper(s, pos) {
   pos = first.pos;
   for (;;) {
     if (s.substr(pos, 2) === "--") {
-      var right = upClassOperandToSet(s, pos + 2);
+      const right = upClassOperandToSet(s, pos + 2);
       left = upClassSetDifference(left, right.set);
       pos = right.pos;
     } else if (s.substr(pos, 2) === "&&") {
-      var right2 = upClassOperandToSet(s, pos + 2);
+      const right2 = upClassOperandToSet(s, pos + 2);
       left = upClassSetIntersection(left, right2.set);
       pos = right2.pos;
     } else {
@@ -802,14 +802,14 @@ function upClassInnerToSet(inner) {
     while (i < inner.length) {
       if (inner.charAt(i) === "\\") {
         if (i + 1 >= inner.length) break;
-        var esc = inner.charAt(i + 1);
+        const esc = inner.charAt(i + 1);
         upClassSetFromChar(plain, esc);
         i += 2;
         continue;
       }
       var ch = inner.charAt(i);
       if (i + 2 < inner.length && inner.charAt(i + 1) === "-" && inner.charAt(i + 2) !== "]") {
-        var endCh = inner.charAt(i + 2);
+        const endCh = inner.charAt(i + 2);
         upClassSetFromRange(plain, ch, endCh);
         i += 3;
         continue;
@@ -820,7 +820,7 @@ function upClassInnerToSet(inner) {
     return plain;
   }
 
-  var parsed = upClassParseExpressionHelper(inner, 0);
+  const parsed = upClassParseExpressionHelper(inner, 0);
   if (parsed.pos !== inner.length) {
     throw new TypeError("Invalid regular expression");
   }
@@ -848,7 +848,7 @@ function upTranslateVToU(input) {
       if (j < input.length && input.charAt(j) === "]") j++;
       var depth = 1;
       while (j < input.length) {
-        var cj = input.charAt(j);
+        const cj = input.charAt(j);
         if (cj === "\\") {
           j += 2;
           continue;
@@ -865,7 +865,7 @@ function upTranslateVToU(input) {
         i++;
         continue;
       }
-      var inner = input.substring(i + 1, j);
+      const inner = input.substring(i + 1, j);
       out += "[" + upTranslateClass(inner) + "]";
       i = j + 1;
       continue;
@@ -877,7 +877,7 @@ function upTranslateVToU(input) {
 }
 
 function upCreateRegExp(pattern, ignoreCase) {
-  var flags = ignoreCase ? "iu" : "u";
+  const flags = ignoreCase ? "iu" : "u";
   try {
     return new RegExp(pattern, flags);
   } catch (e) {
@@ -897,7 +897,7 @@ function upGenerateRegexpAndNameList(partList, options) {
   var nameList = [];
 
   for (var i = 0; i < partList.length; i++) {
-    var part = partList[i];
+    const part = partList[i];
 
     if (part.type === "fixed-text") {
       if (part.modifier === "none") {
@@ -1003,7 +1003,7 @@ function upGeneratePatternString(partList, options) {
       continue;
     }
 
-    var customName = !isASCIIDigit(upCodePointAt(part.name, 0));
+    const customName = !isASCIIDigit(upCodePointAt(part.name, 0));
     var needsGrouping = false;
 
     if (part.suffix !== "") needsGrouping = true;
@@ -1030,7 +1030,7 @@ function upGeneratePatternString(partList, options) {
     }
 
     if (!needsGrouping && part.prefix === "" && prev !== null && prev.type === "fixed-text") {
-      var prevLast = upCodePointAt(prev.value, upCodePointLength(prev.value) - 1);
+      const prevLast = upCodePointAt(prev.value, upCodePointLength(prev.value) - 1);
       if (upCodePointEquals(prevLast, options.prefixCodePoint)) {
         needsGrouping = true;
       }
@@ -1048,7 +1048,7 @@ function upGeneratePatternString(partList, options) {
     } else if (part.type === "segment-wildcard" && !customName) {
       result += "(" + upGenerateSegmentWildcardRegexp(options) + ")";
     } else if (part.type === "full-wildcard") {
-      var useAsterisk =
+      const useAsterisk =
         !customName &&
         (prev === null ||
           prev.type === "fixed-text" ||
@@ -1087,7 +1087,7 @@ function upCreateDummyURL() {
 
 function upCanonicalizeProtocol(value) {
   if (value === "") return "";
-  var parsed = basicURLParser(value + "://dummy.invalid/", null, null, null);
+  const parsed = basicURLParser(value + "://dummy.invalid/", null, null, null);
   if (!parsed) throw new TypeError("Invalid protocol");
   return parsed.scheme;
 }
@@ -1104,8 +1104,8 @@ function upCanonicalizePassword(value) {
 
 function upCanonicalizeHostname(value) {
   if (value === "") return "";
-  var dummy = upCreateDummyURL();
-  var parsed = basicURLParser(value, null, dummy, HOSTNAME);
+  const dummy = upCreateDummyURL();
+  const parsed = basicURLParser(value, null, dummy, HOSTNAME);
   if (!parsed) throw new TypeError("Invalid hostname");
   return parsed.host ? urlparse.serializeHost(parsed.host) : "";
 }
@@ -1113,7 +1113,7 @@ function upCanonicalizeHostname(value) {
 function upCanonicalizeIPv6Hostname(value) {
   var cps = urlparse.codePoints(value);
   for (var i = 0; i < cps.length; i++) {
-    var cp = cps[i];
+    const cp = cps[i];
     if (
       !isASCIIHexDigit(cp) &&
       cp !== 0x5b &&
@@ -1128,38 +1128,38 @@ function upCanonicalizeIPv6Hostname(value) {
 
 function upCanonicalizePort(value, protocolValue) {
   if (value === "") return "";
-  var dummy = upCreateDummyURL();
+  const dummy = upCreateDummyURL();
   dummy.scheme = protocolValue ? protocolValue : "";
-  var parsed = basicURLParser(value, null, dummy, PORT);
+  const parsed = basicURLParser(value, null, dummy, PORT);
   if (!parsed) throw new TypeError("Invalid port");
   return parsed.port === null ? "" : String(parsed.port);
 }
 
 function upCanonicalizePathname(value) {
   if (value === "") return "";
-  var leadingSlash = upCodePointAt(value, 0) === 0x2f;
-  var modified = leadingSlash ? "" : "/-";
+  const leadingSlash = upCodePointAt(value, 0) === 0x2f;
+  let modified = leadingSlash ? "" : "/-";
   modified += value;
-  var dummy = upCreateDummyURL();
+  const dummy = upCreateDummyURL();
   dummy.path = [];
   basicURLParser(modified, null, dummy, PATH_START);
-  var result = serializeURLPath(dummy);
+  let result = serializeURLPath(dummy);
   if (!leadingSlash) result = upCodePointSubstringToEnd(result, 2);
   return result;
 }
 
 function upCanonicalizeOpaquePathname(value) {
   if (value === "") return "";
-  var dummy = upCreateDummyURL();
+  const dummy = upCreateDummyURL();
   dummy.path = "";
-  var parsed = basicURLParser(value, null, dummy, CANNOT_BE_BASE);
+  const parsed = basicURLParser(value, null, dummy, CANNOT_BE_BASE);
   if (!parsed) throw new TypeError("Invalid opaque pathname");
   return serializeURLPath(dummy);
 }
 
 function upCanonicalizeSearch(value) {
   if (value === "") return "";
-  var dummy = upCreateDummyURL();
+  const dummy = upCreateDummyURL();
   dummy.query = "";
   basicURLParser(value, null, dummy, QUERY);
   return dummy.query;
@@ -1167,7 +1167,7 @@ function upCanonicalizeSearch(value) {
 
 function upCanonicalizeHash(value) {
   if (value === "") return "";
-  var dummy = upCreateDummyURL();
+  const dummy = upCreateDummyURL();
   dummy.fragment = "";
   basicURLParser(value, null, dummy, FRAGMENT);
   return dummy.fragment;
@@ -1187,13 +1187,13 @@ function upHas(obj, key) {
 }
 
 function upProcessBaseString(input, type) {
-  var str = String(input);
+  const str = String(input);
   if (type !== "pattern") return str;
   return upEscapePatternString(str);
 }
 
 function upStripTrailingColon(value) {
-  var cps = urlparse.codePoints(value);
+  const cps = urlparse.codePoints(value);
   if (cps.length > 0 && cps[cps.length - 1] === 0x3a) {
     return upCodePointSubstring(value, 0, cps.length - 1);
   }
@@ -1208,7 +1208,7 @@ function upStripLeadingCodePoint(value, cp) {
 }
 
 function upProcessProtocolForInit(value, type) {
-  var stripped = upStripTrailingColon(value);
+  const stripped = upStripTrailingColon(value);
   if (type === "pattern") return stripped;
   return upCanonicalizeProtocol(stripped);
 }
@@ -1242,20 +1242,20 @@ function upProcessPathnameForInit(pathnameValue, protocolValue, type) {
 }
 
 function upProcessSearchForInit(value, type) {
-  var stripped = upStripLeadingCodePoint(value, 0x3f);
+  const stripped = upStripLeadingCodePoint(value, 0x3f);
   if (type === "pattern") return stripped;
   return upCanonicalizeSearch(stripped);
 }
 
 function upProcessHashForInit(value, type) {
-  var stripped = upStripLeadingCodePoint(value, 0x23);
+  const stripped = upStripLeadingCodePoint(value, 0x23);
   if (type === "pattern") return stripped;
   return upCanonicalizeHash(stripped);
 }
 
 function upIsAbsolutePathname(input, type) {
   if (input === "") return false;
-  var cps = urlparse.codePoints(input);
+  const cps = urlparse.codePoints(input);
   if (cps[0] === 0x2f) return true;
   if (type === "url") return false;
   if (cps.length < 2) return false;
@@ -1291,7 +1291,7 @@ function upProcessInit(
   var baseURL = null;
 
   if (upHas(init, "baseURL")) {
-    var baseStr = String(init.baseURL);
+    const baseStr = String(init.baseURL);
     baseURL = basicURLParser(baseStr, null, null, null);
     if (!baseURL) throw new TypeError("Invalid baseURL");
 
@@ -1321,7 +1321,7 @@ function upProcessInit(
     }
 
     if (!upHas(init, "protocol") && !upHas(init, "hostname")) {
-      var baseHost = baseURL.host ? urlparse.serializeHost(baseURL.host) : "";
+      const baseHost = baseURL.host ? urlparse.serializeHost(baseURL.host) : "";
       result.hostname = upProcessBaseString(baseHost, type);
     }
 
@@ -1345,7 +1345,7 @@ function upProcessInit(
       !upHas(init, "pathname") &&
       !upHas(init, "search")
     ) {
-      var baseQuery = baseURL.query === null ? "" : baseURL.query;
+      const baseQuery = baseURL.query === null ? "" : baseURL.query;
       result.search = upProcessBaseString(baseQuery, type);
     }
 
@@ -1357,7 +1357,7 @@ function upProcessInit(
       !upHas(init, "search") &&
       !upHas(init, "hash")
     ) {
-      var baseFragment = baseURL.fragment === null ? "" : baseURL.fragment;
+      const baseFragment = baseURL.fragment === null ? "" : baseURL.fragment;
       result.hash = upProcessBaseString(baseFragment, type);
     }
   }
@@ -1375,7 +1375,7 @@ function upProcessInit(
     result.hostname = upProcessHostnameForInit(String(init.hostname), type);
   }
 
-  var resultProtocolString = upHas(result, "protocol") ? result.protocol : "";
+  const resultProtocolString = upHas(result, "protocol") ? result.protocol : "";
 
   if (upHas(init, "port")) {
     result.port = upProcessPortForInit(
@@ -1393,8 +1393,8 @@ function upProcessInit(
       !urlHasOpaquePath(baseURL) &&
       !upIsAbsolutePathname(result.pathname, type)
     ) {
-      var basePath = upProcessBaseString(serializeURLPath(baseURL), type);
-      var slashIndex = upLastIndexOfCodePoint(basePath, 0x2f);
+      const basePath = upProcessBaseString(serializeURLPath(baseURL), type);
+      const slashIndex = upLastIndexOfCodePoint(basePath, 0x2f);
       if (slashIndex !== null) {
         result.pathname =
           upCodePointSubstring(basePath, 0, slashIndex + 1) + result.pathname;
@@ -1428,8 +1428,8 @@ function upGetSafeToken(parser, index) {
 }
 
 function upMakeComponentString(parser) {
-  var token = parser.tokens[parser.tokenIndex];
-  var startToken = upGetSafeToken(parser, parser.componentStart);
+  const token = parser.tokens[parser.tokenIndex];
+  const startToken = upGetSafeToken(parser, parser.componentStart);
   return upCodePointSubstring(parser.input, startToken.index, token.index);
 }
 
@@ -1451,8 +1451,8 @@ function upChangeState(parser, newState, skip) {
   }
 
   if (oldState !== "init" && newState !== "done") {
-    var preHostStates = ["protocol", "authority", "username", "password"];
-    var postHostStates = ["port", "pathname", "search", "hash"];
+    const preHostStates = ["protocol", "authority", "username", "password"];
+    const postHostStates = ["port", "pathname", "search", "hash"];
     if (
       preHostStates.indexOf(oldState) !== -1 &&
       postHostStates.indexOf(newState) !== -1 &&
@@ -1461,7 +1461,7 @@ function upChangeState(parser, newState, skip) {
       parser.result.hostname = "";
     }
 
-    var prePathStates = [
+    const prePathStates = [
       "protocol",
       "authority",
       "username",
@@ -1477,7 +1477,7 @@ function upChangeState(parser, newState, skip) {
       parser.result.pathname = parser.protocolMatchesSpecialSchemeFlag ? "/" : "";
     }
 
-    var preSearchStates = [
+    const preSearchStates = [
       "protocol",
       "authority",
       "username",
@@ -1502,7 +1502,7 @@ function upChangeState(parser, newState, skip) {
 }
 
 function upIsNonSpecialPatternChar(parser, index, value) {
-  var token = upGetSafeToken(parser, index);
+  const token = upGetSafeToken(parser, index);
   if (token.value !== value) return false;
   return (
     token.type === "char" ||
@@ -1541,7 +1541,7 @@ function upIsPathnameStart(parser) {
 function upIsSearchPrefix(parser) {
   if (upIsNonSpecialPatternChar(parser, parser.tokenIndex, "?")) return true;
 
-  var token = parser.tokens[parser.tokenIndex];
+  const token = parser.tokens[parser.tokenIndex];
   if (!token || token.value !== "?") return false;
 
   var previousIndex = parser.tokenIndex - 1;
@@ -1564,12 +1564,12 @@ function upIsHashPrefix(parser) {
 }
 
 function upIsGroupOpen(parser) {
-  var token = parser.tokens[parser.tokenIndex];
+  const token = parser.tokens[parser.tokenIndex];
   return token && token.type === "open";
 }
 
 function upIsGroupClose(parser) {
-  var token = parser.tokens[parser.tokenIndex];
+  const token = parser.tokens[parser.tokenIndex];
   return token && token.type === "close";
 }
 
@@ -1590,8 +1590,8 @@ function upProtocolComponentMatchesSpecialScheme(component) {
 }
 
 function upComputeProtocolMatchesSpecialSchemeFlag(parser) {
-  var protocolString = upMakeComponentString(parser);
-  var component = upCompileComponent(
+  const protocolString = upMakeComponentString(parser);
+  const component = upCompileComponent(
     protocolString,
     upCanonicalizeProtocol,
     upDefaultOptions()
@@ -1601,7 +1601,7 @@ function upComputeProtocolMatchesSpecialSchemeFlag(parser) {
 }
 
 function upParseConstructorString(input) {
-  var parser = {
+  const parser = {
     input: input,
     tokens: upTokenize(input, "lenient"),
     result: {},
@@ -1616,7 +1616,7 @@ function upParseConstructorString(input) {
 
   while (parser.tokenIndex < parser.tokens.length) {
     parser.tokenIncrement = 1;
-    var token = parser.tokens[parser.tokenIndex];
+    const token = parser.tokens[parser.tokenIndex];
 
     if (token.type === "end") {
       if (parser.state === "init") {
@@ -1770,10 +1770,10 @@ function upParseConstructorString(input) {
 // ---------------------------------------------------------------------------
 
 function upCompileComponent(patternString, encodingCallback, options) {
-  var partList = upParsePatternString(patternString, options, encodingCallback);
-  var generated = upGenerateRegexpAndNameList(partList, options);
-  var regexp = upCreateRegExp(generated.regexp, options.ignoreCase);
-  var patternStringOut = upGeneratePatternString(partList, options);
+  const partList = upParsePatternString(patternString, options, encodingCallback);
+  const generated = upGenerateRegexpAndNameList(partList, options);
+  const regexp = upCreateRegExp(generated.regexp, options.ignoreCase);
+  const patternStringOut = upGeneratePatternString(partList, options);
   var hasRegExpGroups = false;
   for (var i = 0; i < partList.length; i++) {
     if (partList[i].type === "regexp") hasRegExpGroups = true;
@@ -1787,7 +1787,7 @@ function upCompileComponent(patternString, encodingCallback, options) {
 }
 
 function upHostnamePatternIsIPv6(input) {
-  var cps = urlparse.codePoints(input);
+  const cps = urlparse.codePoints(input);
   if (cps.length < 2) return false;
   if (cps[0] === 0x5b) return true;
   if (cps[0] === 0x7b && cps[1] === 0x5b) return true;
@@ -1816,7 +1816,7 @@ function upCreate(input, baseURL, options) {
     init = input || {};
   }
 
-  var processedInit = upProcessInit(
+  const processedInit = upProcessInit(
     init,
     "pattern",
     null,
@@ -1830,7 +1830,7 @@ function upCreate(input, baseURL, options) {
   );
 
   for (var i = 0; i < UP_COMPONENTS.length; i++) {
-    var comp = UP_COMPONENTS[i];
+    const comp = UP_COMPONENTS[i];
     if (!upHas(processedInit, comp)) processedInit[comp] = "*";
   }
 
@@ -1859,7 +1859,7 @@ function upCreate(input, baseURL, options) {
     upDefaultOptions()
   );
 
-  var hostnameOptions = upHostnameOptions();
+  const hostnameOptions = upHostnameOptions();
   if (upHostnamePatternIsIPv6(processedInit.hostname)) {
     pattern.hostname = upCompileComponent(
       processedInit.hostname,
@@ -1880,11 +1880,11 @@ function upCreate(input, baseURL, options) {
     upDefaultOptions()
   );
 
-  var compileOptions = upDefaultOptions();
+  const compileOptions = upDefaultOptions();
   compileOptions.ignoreCase = !!options.ignoreCase;
 
   if (upProtocolComponentMatchesSpecialScheme(pattern.protocol)) {
-    var pathOptions = upPathnameOptions();
+    const pathOptions = upPathnameOptions();
     pathOptions.ignoreCase = !!options.ignoreCase;
     pattern.pathname = upCompileComponent(
       processedInit.pathname,
@@ -1927,7 +1927,7 @@ function upCreate(input, baseURL, options) {
 function upCreateComponentMatchResult(component, input, execResult) {
   var groups = {};
   for (var i = 0; i < component.groupNameList.length; i++) {
-    var name = component.groupNameList[i];
+    const name = component.groupNameList[i];
     groups[name] = execResult[String(i + 1)];
   }
   return { input: input, groups: groups };
@@ -1949,7 +1949,7 @@ function upMatch(urlPattern, input, baseURLString) {
     input = {};
   }
   var inputs = [];
-  var comp = {
+  const comp = {
     protocol: "",
     username: "",
     password: "",
@@ -1961,20 +1961,20 @@ function upMatch(urlPattern, input, baseURLString) {
   };
 
   if (upIsURLObject(input)) {
-    var serialized = String(input);
+    const serialized = String(input);
     inputs.push(serialized);
-    var url = basicURLParser(serialized, null, null, null);
+    const url = basicURLParser(serialized, null, null, null);
     if (!url) return null;
     upFillFromURL(url, comp);
   } else if (typeof input === "string") {
     inputs.push(input);
-    var base = null;
+    let base = null;
     if (baseURLString !== null) {
       base = basicURLParser(baseURLString, null, null, null);
       if (!base) return null;
       inputs.push(baseURLString);
     }
-    var parsed = basicURLParser(input, base, null, null);
+    const parsed = basicURLParser(input, base, null, null);
     if (!parsed) return null;
     upFillFromURL(parsed, comp);
   } else {
@@ -2000,16 +2000,16 @@ function upMatch(urlPattern, input, baseURLString) {
       return null;
     }
     for (var i = 0; i < UP_COMPONENTS.length; i++) {
-      var c = UP_COMPONENTS[i];
+      const c = UP_COMPONENTS[i];
       comp[c] = upHas(processed, c) ? String(processed[c]) : "";
     }
   }
 
-  var result = { inputs: inputs };
+  const result = { inputs: inputs };
 
   for (var k = 0; k < UP_COMPONENTS.length; k++) {
-    var component = UP_COMPONENTS[k];
-    var execResult = urlPattern[component].regexp.exec(comp[component]);
+    const component = UP_COMPONENTS[k];
+    const execResult = urlPattern[component].regexp.exec(comp[component]);
     if (!execResult) return null;
     result[component] = upCreateComponentMatchResult(
       urlPattern[component],
@@ -2060,13 +2060,13 @@ function URLPattern(input, baseURL, options) {
 }
 
 URLPattern.prototype.test = function (input, baseURL) {
-  var base =
+  const base =
     baseURL === undefined || baseURL === null ? null : String(baseURL);
   return upMatch(this._up, input, base) !== null;
 };
 
 URLPattern.prototype.exec = function (input, baseURL) {
-  var base =
+  const base =
     baseURL === undefined || baseURL === null ? null : String(baseURL);
   return upMatch(this._up, input, base);
 };

@@ -20,7 +20,7 @@ public class HelperLoader {
       if (scriptName.startsWith("/")) {
         loadPathStr = "wpt" + scriptName;
       } else {
-        loadPathStr = parentPath.resolve(scriptName).toString();
+        loadPathStr = parentPath.resolve(scriptName).normalize().toString();
       }
       try {
         String helperSource = Utils.readFile(loadPathStr);

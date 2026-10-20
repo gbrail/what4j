@@ -4,6 +4,7 @@ import org.brail.what4j.core.BindingsLoader;
 import org.brail.what4j.core.EncodingModule;
 import org.brail.what4j.core.LoadableModule;
 import org.brail.what4j.core.PerformanceModule;
+import org.brail.what4j.core.StreamsModule;
 import org.brail.what4j.core.URLModule;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.VarScope;
@@ -24,6 +25,7 @@ public class What4J {
     MODULES = new HashMap<>();
     MODULES.put("Encoding", EncodingModule::load);
     MODULES.put("Performance", PerformanceModule::load);
+    MODULES.put("Streams", StreamsModule::load);
     MODULES.put("URL", URLModule::load);
   }
 

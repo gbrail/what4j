@@ -2,9 +2,14 @@
 // Runs untranspiled on Rhino: no `class`, no `async`/`await`, `var` + function
 // declarations, index-based loops (no `for (const of ...)`), no argument spread.
 
-// The "url" binding holds the URL standard's string/byte/table algorithms
-// (percent-encoding, host parsing/serialization, urlencoded parse/serialize).
-// The basic URL parser state machine below stays in JS.
+// The "url" binding holds the URL standard's table/byte algorithms
+// (percent-encoding, host parsing/serialization, urlencoded parse/serialize,
+// toUSVString, code points). The basic URL parser state machine stays in JS,
+// along with the small per-character helpers below. Those helpers stay in JS
+// on purpose: the parse loop calls them for every input code point, and making
+// each one a binding call would add a JS<->Java crossing per character.
+// urlpattern.js (loaded in the same module scope) reuses fromCodePoint,
+// isASCIIDigit, isASCIIHexDigit, asciiLowercase, and basicURLParser from here.
 const urlparse = getBinding("url");
 
 const EOF = -1;
@@ -46,18 +51,18 @@ function asciiLowercase(str) {
 // ---------------------------------------------------------------------------
 // Hosts
 // ---------------------------------------------------------------------------
-var EMPTY_HOST = { type: "empty", value: "" };
+const EMPTY_HOST = { type: "empty", value: "" };
 
 function isWindowsDriveLetter(str) {
-  var cp = urlparse.codePoints(str);
+  const cp = urlparse.codePoints(str);
   return cp.length === 2 && isASCIIAlpha(cp[0]) && (cp[1] === 0x3A || cp[1] === 0x7C);
 }
 function isNormalizedWindowsDriveLetter(str) {
-  var cp = urlparse.codePoints(str);
+  const cp = urlparse.codePoints(str);
   return cp.length === 2 && isASCIIAlpha(cp[0]) && cp[1] === 0x3A;
 }
 function startsWithWindowsDriveLetter(str) {
-  var cp = urlparse.codePoints(str);
+  const cp = urlparse.codePoints(str);
   if (cp.length < 2) return false;
   if (!isASCIIAlpha(cp[0])) return false;
   if (cp[1] !== 0x3A && cp[1] !== 0x7C) return false;
@@ -68,7 +73,7 @@ function startsWithWindowsDriveLetter(str) {
 // ---------------------------------------------------------------------------
 // URL record
 // ---------------------------------------------------------------------------
-var SPECIAL_PORTS = { ftp: 21, file: null, http: 80, https: 443, ws: 80, wss: 443 };
+const SPECIAL_PORTS = { ftp: 21, file: null, http: 80, https: 443, ws: 80, wss: 443 };
 
 function isSpecialScheme(scheme) {
   return Object.prototype.hasOwnProperty.call(SPECIAL_PORTS, scheme);
@@ -109,7 +114,7 @@ function urlCannotHaveUsernamePasswordPort(url) {
 }
 
 function shortenPath(url) {
-  var path = url.path;
+  const path = url.path;
   if (url.scheme === "file" && path.length === 1 && isNormalizedWindowsDriveLetter(path[0])) {
     return;
   }
@@ -117,9 +122,9 @@ function shortenPath(url) {
 }
 
 function serializeURLPath(url) {
-  var path = url.path;
+  const path = url.path;
   if (typeof path === "string") return path;
-  var output = "";
+  let output = "";
   for (var i = 0; i < path.length; i++) output += "/" + path[i];
   return output;
 }
@@ -151,12 +156,12 @@ function serializeURL(url, excludeFragment) {
 }
 
 function urlOrigin(url) {
-  var s = url.scheme;
+  const s = url.scheme;
   if (s === "ftp" || s === "http" || s === "https" || s === "ws" || s === "wss") {
     return { scheme: s, host: url.host, port: url.port };
   }
   if (s === "blob") {
-    var pathURL = basicURLParser(serializeURLPath(url), null, null, null);
+    const pathURL = basicURLParser(serializeURLPath(url), null, null, null);
     if (
       pathURL !== null &&
       (pathURL.scheme === "http" || pathURL.scheme === "https" || pathURL.scheme === "file")
@@ -170,7 +175,7 @@ function urlOrigin(url) {
 
 function serializeOrigin(origin) {
   if (origin === null) return "null";
-  var s = origin.scheme + "://" + urlparse.serializeHost(origin.host);
+  let s = origin.scheme + "://" + urlparse.serializeHost(origin.host);
   if (origin.port !== null) s += ":" + origin.port;
   return s;
 }
@@ -205,7 +210,7 @@ const FRAGMENT = "fragment";
 function basicURLParser(input, base, url, stateOverride) {
   if (url === undefined || url === null) url = newURLRecord();
 
-  var cps = urlparse.codePoints(input);
+  let cps = urlparse.codePoints(input);
   if (!stateOverride) {
     var s = 0;
     while (s < cps.length && isC0ControlOrSpace(cps[s])) s++;
@@ -213,7 +218,7 @@ function basicURLParser(input, base, url, stateOverride) {
     while (e > s && isC0ControlOrSpace(cps[e - 1])) e--;
     cps = cps.slice(s, e);
   }
-  var filtered = [];
+  const filtered = [];
   for (var fi = 0; fi < cps.length; fi++) {
     if (!isASCIITabOrNewline(cps[fi])) filtered.push(cps[fi]);
   }
@@ -248,7 +253,7 @@ function basicURLParser(input, base, url, stateOverride) {
 
   for (;;) {
     var c = cpAt(pointer);
-    var eof = pointer >= len;
+    const eof = pointer >= len;
 
     switch (state) {
       case SCHEME_START:
@@ -410,7 +415,7 @@ function basicURLParser(input, base, url, stateOverride) {
           if (passwordTokenSeen) {
             url.password += urlparse.percentEncode(buffer, "userinfo");
           } else {
-            var colon = buffer.indexOf(":");
+            const colon = buffer.indexOf(":");
             if (colon === -1) {
               url.username += urlparse.percentEncode(buffer, "userinfo");
             } else {
@@ -479,7 +484,7 @@ function basicURLParser(input, base, url, stateOverride) {
           (urlIsSpecial(url) && c === 0x5C) || stateOverride
         ) {
           if (buffer !== "") {
-            var port = parseInt(buffer, 10);
+            const port = parseInt(buffer, 10);
             if (port > 0xFFFF) return null;
             url.port = port === defaultPort(url.scheme) ? null : port;
             buffer = "";
@@ -678,7 +683,7 @@ function isSingleDotSegment(buffer) {
   return buffer === "." || buffer.toLowerCase() === "%2e";
 }
 function isDoubleDotSegment(buffer) {
-  var l = buffer.toLowerCase();
+  const l = buffer.toLowerCase();
   return buffer === ".." || l === ".%2e" || l === "%2e." || l === "%2e%2e";
 }
 
@@ -687,7 +692,7 @@ function isDoubleDotSegment(buffer) {
 // ---------------------------------------------------------------------------
 function isInterfacePrototype(value) {
   if (typeof value !== "object" || value === null) return false;
-  var ctor = value.constructor;
+  const ctor = value.constructor;
   return typeof ctor === "function" && ctor.prototype === value;
 }
 
@@ -696,13 +701,13 @@ function URLSearchParams(init) {
   this._urlObject = null;
   if (init === undefined || init === null) return;
   if (typeof init === "string") {
-    var s = init.charAt(0) === "?" ? init.substring(1) : init;
+    const s = init.charAt(0) === "?" ? init.substring(1) : init;
     this._list = urlparse.urlencodedParse(s);
     return;
   }
   if (Array.isArray(init)) {
     for (var a = 0; a < init.length; a++) {
-      var inner = init[a];
+      const inner = init[a];
       if (!Array.isArray(inner) || inner.length !== 2) {
         throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
       }
@@ -712,11 +717,11 @@ function URLSearchParams(init) {
   }
   if (typeof init === "object" || typeof init === "function") {
     if (typeof init[Symbol.iterator] === "function") {
-      var iterator = init[Symbol.iterator]();
+      const iterator = init[Symbol.iterator]();
       for (;;) {
-        var step = iterator.next();
+        const step = iterator.next();
         if (step.done) break;
-        var pair = step.value;
+        const pair = step.value;
         if (!Array.isArray(pair) || pair.length !== 2) {
           throw new TypeError("URLSearchParams: init item must be a [name, value] pair");
         }
@@ -727,12 +732,12 @@ function URLSearchParams(init) {
     if (isInterfacePrototype(init)) {
       throw new TypeError("URLSearchParams: cannot initialize from an interface prototype");
     }
-    var keys = Object.keys(init);
+    const keys = Object.keys(init);
     var list = [];
     var indices = {};
     for (var k = 0; k < keys.length; k++) {
-      var name = urlparse.toUSVString(keys[k]);
-      var value = urlparse.toUSVString(init[keys[k]]);
+      const name = urlparse.toUSVString(keys[k]);
+      const value = urlparse.toUSVString(init[keys[k]]);
       if (Object.prototype.hasOwnProperty.call(indices, name)) {
         list[indices[name]][1] = value;
       } else {
@@ -748,7 +753,7 @@ function URLSearchParams(init) {
 
 URLSearchParams.prototype._update = function () {
   if (this._urlObject === null) return;
-  var serializedQuery = urlparse.urlencodedSerialize(this._list);
+  let serializedQuery = urlparse.urlencodedSerialize(this._list);
   if (serializedQuery === "") serializedQuery = null;
   this._urlObject._url.query = serializedQuery;
 };
@@ -759,10 +764,10 @@ URLSearchParams.prototype.append = function (name, value) {
 };
 
 URLSearchParams.prototype.delete = function (name, value) {
-  var hasValue = arguments.length > 1 && value !== undefined;
+  const hasValue = arguments.length > 1 && value !== undefined;
   name = urlparse.toUSVString(name);
-  var compareValue = hasValue ? urlparse.toUSVString(value) : null;
-  var newList = [];
+  const compareValue = hasValue ? urlparse.toUSVString(value) : null;
+  const newList = [];
   for (var i = 0; i < this._list.length; i++) {
     var t = this._list[i];
     if (t[0] === name && (!hasValue || t[1] === compareValue)) continue;
@@ -782,7 +787,7 @@ URLSearchParams.prototype.get = function (name) {
 
 URLSearchParams.prototype.getAll = function (name) {
   name = urlparse.toUSVString(name);
-  var out = [];
+  const out = [];
   for (var i = 0; i < this._list.length; i++) {
     if (this._list[i][0] === name) out.push(this._list[i][1]);
   }
@@ -790,11 +795,11 @@ URLSearchParams.prototype.getAll = function (name) {
 };
 
 URLSearchParams.prototype.has = function (name, value) {
-  var hasValue = arguments.length > 1 && value !== undefined;
+  const hasValue = arguments.length > 1 && value !== undefined;
   name = urlparse.toUSVString(name);
-  var compareValue = hasValue ? urlparse.toUSVString(value) : null;
+  const compareValue = hasValue ? urlparse.toUSVString(value) : null;
   for (var i = 0; i < this._list.length; i++) {
-    var t = this._list[i];
+    const t = this._list[i];
     if (t[0] === name && (!hasValue || t[1] === compareValue)) return true;
   }
   return false;
@@ -803,10 +808,10 @@ URLSearchParams.prototype.has = function (name, value) {
 URLSearchParams.prototype.set = function (name, value) {
   name = urlparse.toUSVString(name);
   value = urlparse.toUSVString(value);
-  var found = false;
-  var newList = [];
+  let found = false;
+  const newList = [];
   for (var i = 0; i < this._list.length; i++) {
-    var t = this._list[i];
+    const t = this._list[i];
     if (t[0] === name) {
       if (!found) {
         newList.push([name, value]);
@@ -822,14 +827,14 @@ URLSearchParams.prototype.set = function (name, value) {
 };
 
 URLSearchParams.prototype.forEach = function (callback, thisArg) {
-  var list = this._list;
+  const list = this._list;
   for (var i = 0; i < list.length; i++) {
     callback.call(thisArg, list[i][1], list[i][0], this);
   }
 };
 
 URLSearchParams.prototype.sort = function () {
-  var decorated = [];
+  const decorated = [];
   for (var i = 0; i < this._list.length; i++) decorated.push([this._list[i], i]);
   decorated.sort(function (a, b) {
     if (a[0][0] < b[0][0]) return -1;
@@ -850,7 +855,7 @@ Object.defineProperty(URLSearchParams.prototype, "size", {
 });
 
 URLSearchParams.prototype[Symbol.iterator] = function () {
-  var self = this;
+  const self = this;
   var i = 0;
   return {
     next: function () {
@@ -873,7 +878,7 @@ URLSearchParams.prototype.toString = function () {
 // URL
 // ---------------------------------------------------------------------------
 function apiURLParser(url, base) {
-  var parsedBase = null;
+  let parsedBase = null;
   if (base !== null && base !== undefined) {
     parsedBase = basicURLParser(base, null, null, null);
     if (parsedBase === null) return null;
@@ -891,26 +896,26 @@ function initializeURL(self, parsedRecord) {
 }
 
 function URL(url, base) {
-  var urlStr = String(url);
-  var baseStr = base === undefined || base === null ? null : String(base);
-  var parsed = apiURLParser(urlStr, baseStr);
+  const urlStr = String(url);
+  const baseStr = base === undefined || base === null ? null : String(base);
+  const parsed = apiURLParser(urlStr, baseStr);
   if (parsed === null) throw new TypeError("Invalid URL");
   initializeURL(this, parsed);
 }
 
 URL.parse = function (url, base) {
-  var urlStr = String(url);
-  var baseStr = base === undefined || base === null ? null : String(base);
-  var parsed = apiURLParser(urlStr, baseStr);
+  const urlStr = String(url);
+  const baseStr = base === undefined || base === null ? null : String(base);
+  const parsed = apiURLParser(urlStr, baseStr);
   if (parsed === null) return null;
-  var u = Object.create(URL.prototype);
+  const u = Object.create(URL.prototype);
   initializeURL(u, parsed);
   return u;
 };
 
 URL.canParse = function (url, base) {
-  var urlStr = String(url);
-  var baseStr = base === undefined || base === null ? null : String(base);
+  const urlStr = String(url);
+  const baseStr = base === undefined || base === null ? null : String(base);
   return apiURLParser(urlStr, baseStr) !== null;
 };
 
@@ -926,7 +931,7 @@ Object.defineProperty(URL.prototype, "href", {
     return serializeURL(this._url);
   },
   set: function (value) {
-    var parsed = basicURLParser(String(value), null, null, null);
+    const parsed = basicURLParser(String(value), null, null, null);
     if (parsed === null) throw new TypeError("Invalid URL");
     this._url = parsed;
     this._searchParams._list = [];
@@ -983,7 +988,7 @@ Object.defineProperty(URL.prototype, "password", {
 
 Object.defineProperty(URL.prototype, "host", {
   get: function () {
-    var url = this._url;
+    const url = this._url;
     if (url.host === null) return "";
     if (url.port === null) return urlparse.serializeHost(url.host);
     return urlparse.serializeHost(url.host) + ":" + url.port;
@@ -1046,14 +1051,14 @@ Object.defineProperty(URL.prototype, "search", {
     return "?" + this._url.query;
   },
   set: function (value) {
-    var url = this._url;
+    const url = this._url;
     value = String(value);
     if (value === "") {
       url.query = null;
       this._searchParams._list = [];
       return;
     }
-    var input = value.charAt(0) === "?" ? value.substring(1) : value;
+    const input = value.charAt(0) === "?" ? value.substring(1) : value;
     url.query = "";
     basicURLParser(input, null, url, QUERY);
     this._searchParams._list = urlparse.urlencodedParse(url.query);
@@ -1081,7 +1086,7 @@ Object.defineProperty(URL.prototype, "hash", {
       this._url.fragment = null;
       return;
     }
-    var input = value.charAt(0) === "#" ? value.substring(1) : value;
+    const input = value.charAt(0) === "#" ? value.substring(1) : value;
     this._url.fragment = "";
     basicURLParser(input, null, this._url, FRAGMENT);
   },
