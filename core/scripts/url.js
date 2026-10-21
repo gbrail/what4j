@@ -1,6 +1,6 @@
 // WHATWG URL standard implementation (URL + URLSearchParams).
-// Runs untranspiled on Rhino: no `class`, no `async`/`await`, `var` + function
-// declarations, index-based loops (no `for (const of ...)`), no argument spread.
+// Runs untranspiled on Rhino: no `class`, no `async`/`await`, no argument
+// spread. Prefer `const`/`let` over `var`.
 
 // The "url" binding holds the URL standard's table/byte algorithms
 // (percent-encoding, host parsing/serialization, urlencoded parse/serialize,

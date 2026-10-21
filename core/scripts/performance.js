@@ -54,7 +54,7 @@ function addEventListener(type, listener, options) {
 }
 
 function removeEventListener(type, listener) {
-  var listeners = __listeners[type];
+  const listeners = __listeners[type];
   if (!listeners) {
     return;
   }
@@ -78,8 +78,8 @@ function dispatchEvent(event) {
     if (event._immediatePropagationStopped) {
       break;
     }
-    var entry = copy[i];
-    var index = listeners.indexOf(entry);
+    const entry = copy[i];
+    const index = listeners.indexOf(entry);
     if (index === -1) {
       continue; // removed before its turn
     }
@@ -91,7 +91,7 @@ function dispatchEvent(event) {
   return !event.defaultPrevented;
 }
 
-var performance = {
+let performance = {
   now: function () {
     return clock.now();
   },

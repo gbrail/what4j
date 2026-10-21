@@ -1,6 +1,6 @@
 // Generated from wpt/encoding/resources/encodings.js.
 // Map from normalized label to { name, replacement }.
-var encodingLabels = {
+const encodingLabels = {
   "866": { name: "ibm866", replacement: false },
   "ansi_x3.4-1968": { name: "windows-1252", replacement: false },
   "arabic": { name: "iso-8859-6", replacement: false },

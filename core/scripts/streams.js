@@ -983,7 +983,7 @@ ReadableStream.prototype.values = function (options) {
           "options must be an object.");
     }
   }
-  const preventCancel = false;
+  let preventCancel = false;
   if (options !== undefined && options !== null) {
     var pc = options.preventCancel; // may throw
     if (pc !== undefined) {

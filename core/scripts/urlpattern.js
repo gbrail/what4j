@@ -628,7 +628,7 @@ function upClassHasSetOperation(inner) {
       if (depth === 0) break;
       depth--;
     } else if (depth === 0) {
-      if (inner.substr(i, 2) === "--" || inner.substr(i, 2) === "&&") {
+      if (inner.substring(i, i + 2) === "--" || inner.substring(i, i + 2) === "&&") {
         return true;
       }
     }
@@ -778,11 +778,11 @@ function upClassParseExpressionHelper(s, pos) {
   var left = first.set;
   pos = first.pos;
   for (;;) {
-    if (s.substr(pos, 2) === "--") {
+    if (s.substring(pos, pos + 2) === "--") {
       const right = upClassOperandToSet(s, pos + 2);
       left = upClassSetDifference(left, right.set);
       pos = right.pos;
-    } else if (s.substr(pos, 2) === "&&") {
+    } else if (s.substring(pos, pos + 2) === "&&") {
       const right2 = upClassOperandToSet(s, pos + 2);
       left = upClassSetIntersection(left, right2.set);
       pos = right2.pos;

@@ -103,7 +103,8 @@ Rhino actually supports. Verified against the pinned commit:
   `Number.isInteger`, `Object.entries`, `String.prototype` `includes`/
   `startsWith`/`padStart`/`trimStart`/`normalize`, Unicode regex (`/\p{L}/u`,
   lookbehind), `globalThis`.
-- **Not supported: `class`, `async`/`await`, generators.**
+- **Not supported: `class`, `async`/`await`, generators, argument spread
+  (`f(...args)`; array/object/string spread are fine).**
 - Java interop: the `Packages`/`java` globals are NOT available (the context
   uses `initSafeStandardObjects`). To call Java, add a bridge object on the
   scope from Java (see the Java bridge concept above).
@@ -114,8 +115,9 @@ Rhino actually supports. Verified against the pinned commit:
   needs another platform object). `TextEncoder`/`TextDecoder` are available
   from the Encoding module, but only the subset implemented by
   `core/scripts/encoding.js` and the Java `Encoding` binding.
-- Rhino's `let`/`const` block scoping has quirks; in module code prefer `var`
-  and function declarations unless a construct genuinely needs otherwise.
+- `let`/`const` have correct block scoping on the pinned build and are
+  preferred over `var` in module code (they are measurably faster); use
+  `const` unless the binding is reassigned.
 
 ## Build
 

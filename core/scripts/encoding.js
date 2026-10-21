@@ -1,6 +1,6 @@
 // WHATWG Encoding API (partial) for Rhino.
-// Runs untranspiled on Rhino: no `class`, no `async`/`await`, `var` + function
-// declarations, index-based loops, no argument spread.
+// Runs untranspiled on Rhino: no `class`, no `async`/`await`, no argument
+// spread. Prefer `const`/`let` over `var`.
 
 const encodingBinding = getBinding("encoding");
 
@@ -23,7 +23,7 @@ function encodingStripAsciiWhitespace(str) {
 function encodingAsciiLowercase(str) {
   var out = "";
   for (var i = 0; i < str.length; i++) {
-    var c = str.charCodeAt(i);
+    let c = str.charCodeAt(i);
     if (c >= 0x41 && c <= 0x5a) {
       c += 0x20;
     }
@@ -47,7 +47,7 @@ function TextEncoder() {
 
 Object.defineProperty(TextEncoder.prototype, "encode", {
   value: function (input) {
-    var data = typeof input === "undefined" ? "" : String(input);
+    const data = typeof input === "undefined" ? "" : String(input);
     return encodingBinding.utf8Encode(data);
   },
   writable: true,
@@ -63,7 +63,7 @@ function TextDecoder(label, options) {
   }
   var name = typeof label === "undefined" ? "utf-8" : String(label);
   name = encodingStripAsciiWhitespace(name);
-  var entry = encodingLabels[encodingAsciiLowercase(name)];
+  const entry = encodingLabels[encodingAsciiLowercase(name)];
   if (!entry || entry.replacement) {
     throw new RangeError(
       "The encoding label provided is not a supported encoding label."
