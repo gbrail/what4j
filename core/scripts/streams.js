@@ -1,14 +1,16 @@
-// WHATWG Streams: readable streams and queuing strategies.
+// WHATWG Streams: readable and writable streams, and queuing strategies.
 //
 // Implements the ReadableStream class (with its default controller and
 // default reader), the ReadableStreamDefaultReader class, the
 // ReadableStream.from() static, ReadableStream.tee(), and asynchronous
-// iteration over readable streams, plus the CountQueuingStrategy and
-// ByteLengthQueuingStrategy built-in queuing strategies, as specified in
-// the WHATWG Streams standard (specs/streams.bs).
+// iteration over readable streams; the WritableStream class (with its
+// default controller and default writer); ReadableStream.pipeTo()
+// (piping), and the CountQueuingStrategy and ByteLengthQueuingStrategy
+// built-in queuing strategies, as specified in the WHATWG Streams
+// standard (specs/streams.bs).
 //
-// Readable byte streams (type: "bytes"), writable streams, transform
-// streams, and piping are not implemented yet.
+// Readable byte streams (type: "bytes"), transform streams, and
+// pipeThrough() are not implemented yet.
 
 // Well-known symbols that the pinned Rhino build does not define. Babel's
 // async-to-promises helpers use the same fallback, so defining these here
@@ -51,10 +53,33 @@ const kHighWaterMark = Symbol("highWaterMark");
 // Sentinel for the "end of iteration" completion.
 const kEndOfIteration = Symbol("endOfIteration");
 
-// Queue a microtask (the spec's "perform a microtask checkpoint").
-function queueMicrotask(fn) {
-  Promise.resolve().then(fn);
-}
+// WritableStream slots.
+const kWriter = Symbol("writer");
+const kInFlightWriteRequest = Symbol("inFlightWriteRequest");
+const kInFlightCloseRequest = Symbol("inFlightCloseRequest");
+const kCloseRequest = Symbol("closeRequest");
+const kPendingAbortRequest = Symbol("pendingAbortRequest");
+const kWriteRequests = Symbol("writeRequests");
+const kBackpressure = Symbol("backpressure");
+
+// WritableStreamDefaultController slots.
+const kWriteAlgorithm = Symbol("writeAlgorithm");
+const kCloseAlgorithm = Symbol("closeAlgorithm");
+const kAbortAlgorithm = Symbol("abortAlgorithm");
+const kAbortController = Symbol("abortController");
+
+// WritableStreamDefaultWriter slots.
+const kReadyPromise = Symbol("readyPromise");
+
+// Sentinel enqueued into a writable stream's queue in lieu of a chunk to
+// signal that the stream is closed.
+const kCloseSentinel = Symbol("closeSentinel");
+
+// Queue a microtask (the spec's "perform a microtask checkpoint"). The
+// native binding enqueues the job directly on the engine's microtask queue
+// (Context.enqueueMicrotask), the same queue the engine schedules Promise
+// reactions on, rather than routing it through the Promise machinery.
+const queueMicrotask = getBinding("microtask").queueMicrotask;
 
 function typeError(message) {
   return new TypeError(message);
@@ -257,7 +282,7 @@ function dequeueValue(container) {
 
 function enqueueValueWithSize(container, value, size) {
   // IsNonNegativeNumber(size)
-  if (size != size || size < 0) {
+  if (size !== size || size < 0) {
     throw new RangeError("Invalid chunk size: " + size);
   }
   if (size === Infinity) {
@@ -488,26 +513,39 @@ ReadableStreamDefaultController.prototype.error = function (e) {
 // ReadableStreamDefaultReader
 // ======================================================================
 
-// A reader's [[closedPromise]] is kept as a holder object so that the
-// stream state algorithms can settle the promise, even though the
-// promise itself cannot expose its settle functions.
-function makeClosedPromiseHolder(promise) {
+// Promises that the stream state algorithms must settle (a reader's
+// [[closedPromise]], a writer's [[readyPromise]]/[[closedPromise]], an
+// in-flight write or close request) are kept as holder objects so that
+// the algorithms can reach the settle functions, which the promise
+// itself cannot expose. Holders for promises that are already settled
+// have no-op settle functions. |pending| mirrors the promise's
+// [[PromiseState]] so that the "ensure rejected" steps can tell whether
+// to reject in place or replace the promise.
+function makeSettledPromiseHolder(promise) {
   return {
     promise: promise,
     resolve: function () {},
     reject: function () {},
+    pending: false,
   };
 }
 
-function makePendingClosedPromiseHolder() {
+function makePendingPromiseHolder() {
   const holder = {
     promise: undefined,
     resolve: undefined,
     reject: undefined,
+    pending: true,
   };
   holder.promise = new Promise(function (resolve, reject) {
-    holder.resolve = resolve;
-    holder.reject = reject;
+    holder.resolve = function (v) {
+      holder.pending = false;
+      resolve(v);
+    };
+    holder.reject = function (e) {
+      holder.pending = false;
+      reject(e);
+    };
   });
   return holder;
 }
@@ -518,11 +556,11 @@ function readerGenericInitialize(reader, stream) {
   stream[kReader] = reader;
   const state = stream[kState];
   if (state === "readable") {
-    reader[kClosedPromise] = makePendingClosedPromiseHolder();
+    reader[kClosedPromise] = makePendingPromiseHolder();
   } else if (state === "closed") {
-    reader[kClosedPromise] = makeClosedPromiseHolder(Promise.resolve(undefined));
+    reader[kClosedPromise] = makeSettledPromiseHolder(Promise.resolve(undefined));
   } else {
-    reader[kClosedPromise] = makeClosedPromiseHolder(Promise.reject(stream[kStoredError]));
+    reader[kClosedPromise] = makeSettledPromiseHolder(Promise.reject(stream[kStoredError]));
     reader[kClosedPromise].promise.then(
         undefined,
         function () {}
@@ -537,7 +575,7 @@ function readerGenericRelease(reader) {
     reader[kClosedPromise].reject(
         typeError("ReadableStreamDefaultReader.releaseLock can only be used when owned"));
   } else {
-    reader[kClosedPromise] = makeClosedPromiseHolder(
+    reader[kClosedPromise] = makeSettledPromiseHolder(
         Promise.reject(
             typeError("ReadableStreamDefaultReader.releaseLock can only be used when owned")));
     reader[kClosedPromise].promise.then(
@@ -636,7 +674,7 @@ ReadableStreamDefaultReader.prototype.read = function () {
         typeError("ReadableStreamDefaultReader.read can only be used on active readers"));
   }
   const reader = this;
-  const promise = new Promise(function (resolve, reject) {
+  return new Promise(function (resolve, reject) {
     const readRequest = {
       chunk: function (chunk) {
         resolve({
@@ -656,7 +694,6 @@ ReadableStreamDefaultReader.prototype.read = function () {
     };
     defaultReaderRead(reader, readRequest);
   });
-  return promise;
 };
 
 ReadableStreamDefaultReader.prototype.releaseLock = function () {
@@ -853,7 +890,7 @@ function ReadableStream(underlyingSource, strategy) {
   if (highWaterMarkValue === undefined) {
     highWaterMark = 1;
   } else {
-    if (highWaterMarkValue != highWaterMarkValue || highWaterMarkValue < 0) {
+    if (highWaterMarkValue !== highWaterMarkValue || highWaterMarkValue < 0) {
       throw new RangeError("Invalid high water mark: " + highWaterMarkValue);
     }
     highWaterMark = highWaterMarkValue;
@@ -1005,6 +1042,1265 @@ Object.defineProperty(ReadableStream.prototype, kAsyncIterator, {
   writable: true,
   configurable: true,
 });
+
+// ======================================================================
+// WritableStream: core state and stream-level algorithms
+// ======================================================================
+
+// InitializeWritableStream(stream)
+function initializeWritableStream(stream) {
+  stream[kState] = "writable";
+  stream[kStoredError] = undefined;
+  stream[kWriter] = undefined;
+  stream[kController] = undefined;
+  stream[kInFlightWriteRequest] = undefined;
+  stream[kInFlightCloseRequest] = undefined;
+  stream[kCloseRequest] = undefined;
+  stream[kPendingAbortRequest] = undefined;
+  stream[kWriteRequests] = [];
+  stream[kBackpressure] = false;
+}
+
+// IsWritableStreamLocked(stream)
+function isWritableStreamLocked(stream) {
+  return stream[kWriter] !== undefined;
+}
+
+// Brand check: is this object a WritableStream (or subclass) instance?
+function isWritableStream(object) {
+  return object !== null &&
+      typeof object === "object" &&
+      object[kBackpressure] !== undefined;
+}
+
+// WritableStreamCloseQueuedOrInFlight(stream)
+function writableStreamCloseQueuedOrInFlight(stream) {
+  return stream[kCloseRequest] !== undefined || stream[kInFlightCloseRequest] !== undefined;
+}
+
+// WritableStreamHasOperationMarkedInFlight(stream)
+function writableStreamHasOperationMarkedInFlight(stream) {
+  return stream[kInFlightWriteRequest] !== undefined ||
+      stream[kInFlightCloseRequest] !== undefined;
+}
+
+// WritableStreamAddWriteRequest(stream)
+function writableStreamAddWriteRequest(stream) {
+  const holder = makePendingPromiseHolder();
+  stream[kWriteRequests].push(holder);
+  return holder.promise;
+}
+
+// WritableStreamDealWithRejection(stream, error)
+function writableStreamDealWithRejection(stream, error) {
+  if (stream[kState] === "writable") {
+    writableStreamStartErroring(stream, error);
+    return;
+  }
+  // State is "erroring".
+  writableStreamFinishErroring(stream);
+}
+
+// WritableStreamStartErroring(stream, reason)
+function writableStreamStartErroring(stream, reason) {
+  const controller = stream[kController];
+  stream[kState] = "erroring";
+  stream[kStoredError] = reason;
+  const writer = stream[kWriter];
+  if (writer !== undefined) {
+    writableStreamDefaultWriterEnsureReadyPromiseRejected(writer, reason);
+  }
+  if (!writableStreamHasOperationMarkedInFlight(stream) && controller[kStarted]) {
+    writableStreamFinishErroring(stream);
+  }
+}
+
+// WritableStreamFinishErroring(stream)
+function writableStreamFinishErroring(stream) {
+  stream[kState] = "errored";
+  const controller = stream[kController];
+  // [[ErrorSteps]](): ResetQueue(controller)
+  resetQueue(controller);
+  const storedError = stream[kStoredError];
+  const writeRequests = stream[kWriteRequests];
+  stream[kWriteRequests] = [];
+  for (var i = 0; i < writeRequests.length; i++) {
+    writeRequests[i].reject(storedError);
+  }
+  const abortRequest = stream[kPendingAbortRequest];
+  stream[kPendingAbortRequest] = undefined;
+  if (abortRequest === undefined) {
+    writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
+    return;
+  }
+  const promise = writableDefaultControllerAbortSteps(controller, abortRequest.reason);
+  promise.then(
+      function () {
+        abortRequest.resolve(undefined);
+        writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
+      },
+      function (reason) {
+        abortRequest.reject(reason);
+        writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
+      }
+  );
+}
+
+// WritableStreamRejectCloseAndClosedPromiseIfNeeded(stream)
+function writableStreamRejectCloseAndClosedPromiseIfNeeded(stream) {
+  if (stream[kCloseRequest] !== undefined) {
+    stream[kCloseRequest].reject(stream[kStoredError]);
+    stream[kCloseRequest] = undefined;
+  }
+  const writer = stream[kWriter];
+  if (writer !== undefined) {
+    writableStreamDefaultWriterEnsureClosedPromiseRejected(writer, stream[kStoredError]);
+  }
+}
+
+// WritableStreamMarkFirstWriteRequestInFlight(stream)
+function writableStreamMarkFirstWriteRequestInFlight(stream) {
+  stream[kInFlightWriteRequest] = stream[kWriteRequests].shift();
+}
+
+// WritableStreamMarkCloseRequestInFlight(stream)
+function writableStreamMarkCloseRequestInFlight(stream) {
+  stream[kInFlightCloseRequest] = stream[kCloseRequest];
+  stream[kCloseRequest] = undefined;
+}
+
+// WritableStreamFinishInFlightWrite(stream)
+function writableStreamFinishInFlightWrite(stream) {
+  stream[kInFlightWriteRequest].resolve(undefined);
+  stream[kInFlightWriteRequest] = undefined;
+}
+
+// WritableStreamFinishInFlightWriteWithError(stream, error)
+function writableStreamFinishInFlightWriteWithError(stream, error) {
+  stream[kInFlightWriteRequest].reject(error);
+  stream[kInFlightWriteRequest] = undefined;
+  writableStreamDealWithRejection(stream, error);
+}
+
+// WritableStreamFinishInFlightClose(stream)
+function writableStreamFinishInFlightClose(stream) {
+  stream[kInFlightCloseRequest].resolve(undefined);
+  stream[kInFlightCloseRequest] = undefined;
+  if (stream[kState] === "erroring") {
+    stream[kStoredError] = undefined;
+    const abortRequest = stream[kPendingAbortRequest];
+    if (abortRequest !== undefined) {
+      abortRequest.resolve(undefined);
+      stream[kPendingAbortRequest] = undefined;
+    }
+  }
+  stream[kState] = "closed";
+  const writer = stream[kWriter];
+  if (writer !== undefined) {
+    writer[kClosedPromise].resolve(undefined);
+  }
+}
+
+// WritableStreamFinishInFlightCloseWithError(stream, error)
+function writableStreamFinishInFlightCloseWithError(stream, error) {
+  stream[kInFlightCloseRequest].reject(error);
+  stream[kInFlightCloseRequest] = undefined;
+  const abortRequest = stream[kPendingAbortRequest];
+  if (abortRequest !== undefined) {
+    abortRequest.reject(error);
+    stream[kPendingAbortRequest] = undefined;
+  }
+  writableStreamDealWithRejection(stream, error);
+}
+
+// WritableStreamUpdateBackpressure(stream, backpressure)
+function writableStreamUpdateBackpressure(stream, backpressure) {
+  const writer = stream[kWriter];
+  if (writer !== undefined && backpressure !== stream[kBackpressure]) {
+    if (backpressure) {
+      writer[kReadyPromise] = makePendingPromiseHolder();
+    } else {
+      writer[kReadyPromise].resolve(undefined);
+    }
+  }
+  stream[kBackpressure] = backpressure;
+}
+
+// WritableStreamAbort(stream, reason)
+function writableStreamAbort(stream, reason) {
+  if (stream[kState] === "closed" || stream[kState] === "errored") {
+    return Promise.resolve(undefined);
+  }
+  // Signal abort on the controller's AbortController with reason. This
+  // runs author code (the signal's "abort" event listeners), which might
+  // change the stream's state, so the state is re-checked below.
+  stream[kController][kAbortController].abort(reason);
+  const state = stream[kState];
+  if (state === "closed" || state === "errored") {
+    return Promise.resolve(undefined);
+  }
+  const pendingAbortRequest = stream[kPendingAbortRequest];
+  if (pendingAbortRequest !== undefined) {
+    return pendingAbortRequest.promise;
+  }
+  // State is "writable" or "erroring".
+  let wasAlreadyErroring = false;
+  if (state === "erroring") {
+    wasAlreadyErroring = true;
+    reason = undefined;
+  }
+  const holder = makePendingPromiseHolder();
+  stream[kPendingAbortRequest] = {
+    promise: holder.promise,
+    resolve: holder.resolve,
+    reject: holder.reject,
+    reason: reason,
+    wasAlreadyErroring: wasAlreadyErroring,
+  };
+  if (!wasAlreadyErroring) {
+    writableStreamStartErroring(stream, reason);
+  }
+  return holder.promise;
+}
+
+// WritableStreamClose(stream)
+function writableStreamClose(stream) {
+  const state = stream[kState];
+  if (state === "closed" || state === "errored") {
+    return Promise.reject(
+        typeError("WritableStream.close can only be used once"));
+  }
+  // State is "writable" or "erroring".
+  const holder = makePendingPromiseHolder();
+  stream[kCloseRequest] = holder;
+  const writer = stream[kWriter];
+  if (writer !== undefined && stream[kBackpressure] && state === "writable") {
+    writer[kReadyPromise].resolve(undefined);
+  }
+  writableDefaultControllerClose(stream[kController]);
+  return holder.promise;
+}
+
+// ======================================================================
+// WritableStreamDefaultController
+// ======================================================================
+
+// WritableStreamDefaultControllerClearAlgorithms(controller)
+function writableDefaultControllerClearAlgorithms(controller) {
+  controller[kWriteAlgorithm] = undefined;
+  controller[kCloseAlgorithm] = undefined;
+  controller[kAbortAlgorithm] = undefined;
+  controller[kStrategySizeAlgorithm] = undefined;
+}
+
+// WritableStreamDefaultControllerGetDesiredSize(controller)
+function writableDefaultControllerGetDesiredSize(controller) {
+  return controller[kStrategyHighWaterMark] - controller[kQueueTotalSize];
+}
+
+// WritableStreamDefaultControllerGetBackpressure(controller)
+function writableDefaultControllerGetBackpressure(controller) {
+  return writableDefaultControllerGetDesiredSize(controller) <= 0;
+}
+
+// [[AbortSteps]](reason)
+function writableDefaultControllerAbortSteps(controller, reason) {
+  const result = controller[kAbortAlgorithm](reason);
+  writableDefaultControllerClearAlgorithms(controller);
+  return result;
+}
+
+// WritableStreamDefaultControllerError(controller, e)
+function writableDefaultControllerError(controller, e) {
+  const stream = controller[kStream];
+  writableDefaultControllerClearAlgorithms(controller);
+  writableStreamStartErroring(stream, e);
+}
+
+// WritableStreamDefaultControllerErrorIfNeeded(controller, error)
+function writableDefaultControllerErrorIfNeeded(controller, error) {
+  if (controller[kStream][kState] === "writable") {
+    writableDefaultControllerError(controller, error);
+  }
+}
+
+// WritableStreamDefaultControllerGetChunkSize(controller, chunk)
+function writableDefaultControllerGetChunkSize(controller, chunk) {
+  const sizeAlgorithm = controller[kStrategySizeAlgorithm];
+  if (sizeAlgorithm === undefined) {
+    // The algorithms were cleared, so the stream is not writable.
+    return 1;
+  }
+  let returnValue;
+  try {
+    returnValue = sizeAlgorithm(chunk);
+  } catch (e) {
+    writableDefaultControllerErrorIfNeeded(controller, e);
+    return 1;
+  }
+  return returnValue;
+}
+
+// WritableStreamDefaultControllerAdvanceQueueIfNeeded(controller)
+function writableDefaultControllerAdvanceQueueIfNeeded(controller) {
+  const stream = controller[kStream];
+  if (!controller[kStarted]) {
+    return;
+  }
+  if (stream[kInFlightWriteRequest] !== undefined) {
+    return;
+  }
+  const state = stream[kState];
+  if (state === "erroring") {
+    writableStreamFinishErroring(stream);
+    return;
+  }
+  if (controller[kQueue].length === 0) {
+    return;
+  }
+  // PeekQueueValue(controller)
+  const value = controller[kQueue][0][0];
+  if (value === kCloseSentinel) {
+    writableDefaultControllerProcessClose(controller);
+  } else {
+    writableDefaultControllerProcessWrite(controller, value);
+  }
+}
+
+// WritableStreamDefaultControllerProcessWrite(controller, chunk)
+function writableDefaultControllerProcessWrite(controller, chunk) {
+  const stream = controller[kStream];
+  writableStreamMarkFirstWriteRequestInFlight(stream);
+  const sinkWritePromise = controller[kWriteAlgorithm](chunk);
+  sinkWritePromise.then(
+      function () {
+        writableStreamFinishInFlightWrite(stream);
+        const state = stream[kState];
+        dequeueValue(controller);
+        if (!writableStreamCloseQueuedOrInFlight(stream) && state === "writable") {
+          writableStreamUpdateBackpressure(stream,
+              writableDefaultControllerGetBackpressure(controller));
+        }
+        writableDefaultControllerAdvanceQueueIfNeeded(controller);
+      },
+      function (reason) {
+        if (stream[kState] === "writable") {
+          writableDefaultControllerClearAlgorithms(controller);
+        }
+        writableStreamFinishInFlightWriteWithError(stream, reason);
+      }
+  );
+}
+
+// WritableStreamDefaultControllerProcessClose(controller)
+function writableDefaultControllerProcessClose(controller) {
+  const stream = controller[kStream];
+  writableStreamMarkCloseRequestInFlight(stream);
+  dequeueValue(controller);
+  const sinkClosePromise = controller[kCloseAlgorithm]();
+  writableDefaultControllerClearAlgorithms(controller);
+  sinkClosePromise.then(
+      function () {
+        writableStreamFinishInFlightClose(stream);
+      },
+      function (reason) {
+        writableStreamFinishInFlightCloseWithError(stream, reason);
+      }
+  );
+}
+
+// WritableStreamDefaultControllerClose(controller)
+function writableDefaultControllerClose(controller) {
+  enqueueValueWithSize(controller, kCloseSentinel, 0);
+  writableDefaultControllerAdvanceQueueIfNeeded(controller);
+}
+
+// WritableStreamDefaultControllerWrite(controller, chunk, chunkSize)
+function writableDefaultControllerWrite(controller, chunk, chunkSize) {
+  try {
+    enqueueValueWithSize(controller, chunk, chunkSize);
+  } catch (e) {
+    writableDefaultControllerErrorIfNeeded(controller, e);
+    return;
+  }
+  const stream = controller[kStream];
+  if (!writableStreamCloseQueuedOrInFlight(stream) && stream[kState] === "writable") {
+    writableStreamUpdateBackpressure(stream,
+        writableDefaultControllerGetBackpressure(controller));
+  }
+  writableDefaultControllerAdvanceQueueIfNeeded(controller);
+}
+
+// SetUpWritableStreamDefaultController(stream, controller, startAlgorithm,
+// writeAlgorithm, closeAlgorithm, abortAlgorithm, highWaterMark,
+// sizeAlgorithm)
+function setUpWritableDefaultController(
+    stream,
+    controller,
+    startAlgorithm,
+    writeAlgorithm,
+    closeAlgorithm,
+    abortAlgorithm,
+    highWaterMark,
+    sizeAlgorithm
+) {
+  controller[kStream] = stream;
+  stream[kController] = controller;
+  resetQueue(controller);
+  controller[kAbortController] = new AbortController();
+  controller[kStarted] = false;
+  controller[kStrategySizeAlgorithm] = sizeAlgorithm;
+  controller[kStrategyHighWaterMark] = highWaterMark;
+  controller[kWriteAlgorithm] = writeAlgorithm;
+  controller[kCloseAlgorithm] = closeAlgorithm;
+  controller[kAbortAlgorithm] = abortAlgorithm;
+  const backpressure = writableDefaultControllerGetBackpressure(controller);
+  writableStreamUpdateBackpressure(stream, backpressure);
+  const startResult = startAlgorithm(); // may throw
+  const startPromise = Promise.resolve(startResult);
+  startPromise.then(
+      function () {
+        controller[kStarted] = true;
+        writableDefaultControllerAdvanceQueueIfNeeded(controller);
+      },
+      function (r) {
+        controller[kStarted] = true;
+        writableStreamDealWithRejection(stream, r);
+      }
+  );
+}
+
+// SetUpWritableStreamDefaultControllerFromUnderlyingSink(stream, startFn,
+// writeFn, closeFn, abortFn, highWaterMark, sizeAlgorithm)
+//
+// |startFn|, |writeFn|, |closeFn|, and |abortFn| are the underlying
+// sink's methods already converted and bound by the constructor (each
+// either a bound function or undefined).
+function setUpWritableDefaultControllerFromUnderlyingSink(
+    stream,
+    startFn,
+    writeFn,
+    closeFn,
+    abortFn,
+    highWaterMark,
+    sizeAlgorithm
+) {
+  const controller = Object.create(WritableStreamDefaultController.prototype);
+
+  var startAlgorithm = function () {
+    return undefined;
+  };
+  var writeAlgorithm = function () {
+    return Promise.resolve(undefined);
+  };
+  var closeAlgorithm = function () {
+    return Promise.resolve(undefined);
+  };
+  var abortAlgorithm = function () {
+    return Promise.resolve(undefined);
+  };
+
+  if (startFn !== undefined) {
+    startAlgorithm = function () {
+      return startFn(controller); // may throw
+    };
+  }
+  if (writeFn !== undefined) {
+    writeAlgorithm = function (chunk) {
+      try {
+        return Promise.resolve(writeFn(chunk, controller));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+  if (closeFn !== undefined) {
+    closeAlgorithm = function () {
+      try {
+        return Promise.resolve(closeFn());
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+  if (abortFn !== undefined) {
+    abortAlgorithm = function (reason) {
+      try {
+        return Promise.resolve(abortFn(reason));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+
+  setUpWritableDefaultController(
+      stream,
+      controller,
+      startAlgorithm,
+      writeAlgorithm,
+      closeAlgorithm,
+      abortAlgorithm,
+      highWaterMark,
+      sizeAlgorithm
+  );
+}
+
+// The public controller interface. The object is created internally by
+// the stream implementation; the constructor exists for the Web IDL
+// surface only.
+function WritableStreamDefaultController() {
+  throw typeError("WritableStreamDefaultController instances cannot be created directly.");
+}
+
+Object.defineProperty(WritableStreamDefaultController.prototype, "signal", {
+  get: function () {
+    return this[kAbortController].signal;
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+WritableStreamDefaultController.prototype.error = function (e) {
+  const stream = this[kStream];
+  if (stream[kState] !== "writable") {
+    return;
+  }
+  writableDefaultControllerError(this, e);
+};
+
+// ======================================================================
+// WritableStreamDefaultWriter
+// ======================================================================
+
+// WritableStreamDefaultWriterGetDesiredSize(writer)
+function writableStreamDefaultWriterGetDesiredSize(writer) {
+  const stream = writer[kStream];
+  const state = stream[kState];
+  if (state === "errored" || state === "erroring") {
+    return null;
+  }
+  if (state === "closed") {
+    return 0;
+  }
+  return writableDefaultControllerGetDesiredSize(stream[kController]);
+}
+
+// WritableStreamDefaultWriterEnsureReadyPromiseRejected(writer, error)
+function writableStreamDefaultWriterEnsureReadyPromiseRejected(writer, error) {
+  const holder = writer[kReadyPromise];
+  if (holder.pending) {
+    holder.reject(error);
+  } else {
+    writer[kReadyPromise] = makeSettledPromiseHolder(Promise.reject(error));
+    writer[kReadyPromise].promise.then(
+        undefined,
+        function () {}
+    ); // mark the rejection as handled
+  }
+}
+
+// WritableStreamDefaultWriterEnsureClosedPromiseRejected(writer, error)
+function writableStreamDefaultWriterEnsureClosedPromiseRejected(writer, error) {
+  const holder = writer[kClosedPromise];
+  if (holder.pending) {
+    holder.reject(error);
+  } else {
+    writer[kClosedPromise] = makeSettledPromiseHolder(Promise.reject(error));
+    writer[kClosedPromise].promise.then(
+        undefined,
+        function () {}
+    ); // mark the rejection as handled
+  }
+}
+
+// WritableStreamDefaultWriterRelease(writer)
+function writableStreamDefaultWriterRelease(writer) {
+  const stream = writer[kStream];
+  const releasedError =
+      typeError("WritableStreamDefaultWriter.releaseLock can only be used when owned");
+  writableStreamDefaultWriterEnsureReadyPromiseRejected(writer, releasedError);
+  writableStreamDefaultWriterEnsureClosedPromiseRejected(writer, releasedError);
+  stream[kWriter] = undefined;
+  writer[kStream] = undefined;
+}
+
+// WritableStreamDefaultWriterWrite(writer, chunk)
+function writableStreamDefaultWriterWrite(writer, chunk) {
+  const stream = writer[kStream];
+  const controller = stream[kController];
+  const chunkSize = writableDefaultControllerGetChunkSize(controller, chunk);
+  // GetChunkSize runs the strategy's size function, which is author code
+  // that might release the writer's lock.
+  if (stream !== writer[kStream]) {
+    return Promise.reject(
+        typeError("WritableStreamDefaultWriter.write can only be used on active writers"));
+  }
+  const state = stream[kState];
+  if (state === "errored") {
+    return Promise.reject(stream[kStoredError]);
+  }
+  if (writableStreamCloseQueuedOrInFlight(stream) || state === "closed") {
+    return Promise.reject(
+        typeError("WritableStream is closing or closed; cannot write to it"));
+  }
+  if (state === "erroring") {
+    return Promise.reject(stream[kStoredError]);
+  }
+  // State is "writable".
+  const promise = writableStreamAddWriteRequest(stream);
+  writableDefaultControllerWrite(controller, chunk, chunkSize);
+  return promise;
+}
+
+// WritableStreamDefaultWriterClose(writer)
+function writableStreamDefaultWriterClose(writer) {
+  const stream = writer[kStream];
+  return writableStreamClose(stream);
+}
+
+// WritableStreamDefaultWriterAbort(writer, reason)
+function writableStreamDefaultWriterAbort(writer, reason) {
+  const stream = writer[kStream];
+  return writableStreamAbort(stream, reason);
+}
+
+// WritableStreamDefaultWriterCloseWithErrorPropagation(writer)
+//
+// Needed by ReadableStream.pipeTo() once piping is implemented.
+function writableStreamDefaultWriterCloseWithErrorPropagation(writer) {
+  const stream = writer[kStream];
+  const state = stream[kState];
+  if (writableStreamCloseQueuedOrInFlight(stream) || state === "closed") {
+    return Promise.resolve(undefined);
+  }
+  if (state === "errored") {
+    return Promise.reject(stream[kStoredError]);
+  }
+  // State is "writable" or "erroring".
+  return writableStreamClose(stream);
+}
+
+// SetUpWritableStreamDefaultWriter(writer, stream)
+function setUpWritableStreamDefaultWriter(writer, stream) {
+  if (isWritableStreamLocked(stream)) {
+    throw typeError("Failed to construct 'WritableStreamDefaultWriter': " +
+        "stream is already locked to a different writer object.");
+  }
+  writer[kStream] = stream;
+  stream[kWriter] = writer;
+  const state = stream[kState];
+  if (state === "writable") {
+    if (!writableStreamCloseQueuedOrInFlight(stream) && stream[kBackpressure]) {
+      writer[kReadyPromise] = makePendingPromiseHolder();
+    } else {
+      writer[kReadyPromise] = makeSettledPromiseHolder(Promise.resolve(undefined));
+    }
+    writer[kClosedPromise] = makePendingPromiseHolder();
+  } else if (state === "erroring") {
+    writer[kReadyPromise] = makeSettledPromiseHolder(Promise.reject(stream[kStoredError]));
+    writer[kReadyPromise].promise.then(
+        undefined,
+        function () {}
+    ); // mark the rejection as handled
+    writer[kClosedPromise] = makePendingPromiseHolder();
+  } else if (state === "closed") {
+    writer[kReadyPromise] = makeSettledPromiseHolder(Promise.resolve(undefined));
+    writer[kClosedPromise] = makeSettledPromiseHolder(Promise.resolve(undefined));
+  } else {
+    // State is "errored".
+    const storedError = stream[kStoredError];
+    writer[kReadyPromise] = makeSettledPromiseHolder(Promise.reject(storedError));
+    writer[kReadyPromise].promise.then(
+        undefined,
+        function () {}
+    ); // mark the rejection as handled
+    writer[kClosedPromise] = makeSettledPromiseHolder(Promise.reject(storedError));
+    writer[kClosedPromise].promise.then(
+        undefined,
+        function () {}
+    ); // mark the rejection as handled
+  }
+}
+
+// AcquireWritableStreamDefaultWriter(stream)
+function acquireWritableStreamDefaultWriter(stream) {
+  const writer = Object.create(WritableStreamDefaultWriter.prototype);
+  setUpWritableStreamDefaultWriter(writer, stream);
+  return writer;
+}
+
+function WritableStreamDefaultWriter(stream) {
+  if (!isWritableStream(stream)) {
+    throw typeError(
+        "Failed to construct 'WritableStreamDefaultWriter': argument is not a WritableStream.");
+  }
+  return acquireWritableStreamDefaultWriter(stream);
+}
+
+Object.defineProperty(WritableStreamDefaultWriter.prototype, "closed", {
+  get: function () {
+    return this[kClosedPromise].promise;
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+Object.defineProperty(WritableStreamDefaultWriter.prototype, "ready", {
+  get: function () {
+    return this[kReadyPromise].promise;
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+Object.defineProperty(WritableStreamDefaultWriter.prototype, "desiredSize", {
+  get: function () {
+    if (this[kStream] === undefined) {
+      throw typeError(
+          "WritableStreamDefaultWriter.desiredSize getter can only be used on active writers");
+    }
+    return writableStreamDefaultWriterGetDesiredSize(this);
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+WritableStreamDefaultWriter.prototype.abort = function (reason) {
+  if (this[kStream] === undefined) {
+    return Promise.reject(
+        typeError("WritableStreamDefaultWriter.abort can only be used on active writers"));
+  }
+  return writableStreamDefaultWriterAbort(this, reason);
+};
+
+WritableStreamDefaultWriter.prototype.close = function () {
+  if (this[kStream] === undefined) {
+    return Promise.reject(
+        typeError("WritableStreamDefaultWriter.close can only be used on active writers"));
+  }
+  if (writableStreamCloseQueuedOrInFlight(this[kStream])) {
+    return Promise.reject(
+        typeError("WritableStreamDefaultWriter.close can only be used once"));
+  }
+  return writableStreamDefaultWriterClose(this);
+};
+
+WritableStreamDefaultWriter.prototype.releaseLock = function () {
+  if (this[kStream] === undefined) {
+    return;
+  }
+  writableStreamDefaultWriterRelease(this);
+};
+
+WritableStreamDefaultWriter.prototype.write = function (chunk) {
+  if (this[kStream] === undefined) {
+    return Promise.reject(
+        typeError("WritableStreamDefaultWriter.write can only be used on active writers"));
+  }
+  return writableStreamDefaultWriterWrite(this, chunk);
+};
+
+// ======================================================================
+// WritableStream
+// ======================================================================
+
+function WritableStream(underlyingSink, strategy) {
+  // IDL: underlyingSink is an optional object argument. null and
+  // non-object values are not convertible; missing or undefined becomes
+  // null.
+  if (underlyingSink === null) {
+    throw typeError("Failed to construct 'WritableStream': " +
+        "underlyingSink must not be null.");
+  }
+  if (underlyingSink !== undefined &&
+      typeof underlyingSink !== "object" &&
+      typeof underlyingSink !== "function") {
+    throw typeError("Failed to construct 'WritableStream': " +
+        "underlyingSink must be an object.");
+  }
+  // IDL: strategy is an optional QueuingStrategy dictionary argument,
+  // converted at the IDL layer, i.e. before the underlying sink's
+  // properties are read in the method body.
+  if (strategy === undefined || strategy === null) {
+    strategy = {};
+  }
+  if (typeof strategy !== "object" && typeof strategy !== "function") {
+    throw typeError("Failed to construct 'WritableStream': strategy must be an object.");
+  }
+  var highWaterMarkValue = strategy.highWaterMark; // may throw via a getter
+  if (highWaterMarkValue !== undefined) {
+    highWaterMarkValue = Number(highWaterMarkValue); // unrestricted double
+  }
+  var sizeValue = strategy.size; // may throw via a getter
+  if (sizeValue !== undefined && typeof sizeValue !== "function") {
+    throw typeError(
+        "Failed to convert argument 'size' of 'QueuingStrategy': provided value is not a function.");
+  }
+
+  if (underlyingSink === undefined) {
+    underlyingSink = null;
+  }
+
+  // Convert the underlying sink to an UnderlyingSink dictionary
+  // (members read in declaration order).
+  var startFn;
+  var writeFn;
+  var closeFn;
+  var abortFn;
+  if (underlyingSink !== null) {
+    startFn = underlyingSink.start; // may throw
+    writeFn = underlyingSink.write; // may throw
+    closeFn = underlyingSink.close; // may throw
+    abortFn = underlyingSink.abort; // may throw
+  }
+  if (startFn !== undefined && typeof startFn !== "function") {
+    throw typeError("Failed to convert argument 'start' of 'UnderlyingSink': " +
+        "provided value is not a function.");
+  }
+  if (writeFn !== undefined && typeof writeFn !== "function") {
+    throw typeError("Failed to convert argument 'write' of 'UnderlyingSink': " +
+        "provided value is not a function.");
+  }
+  if (closeFn !== undefined && typeof closeFn !== "function") {
+    throw typeError("Failed to convert argument 'close' of 'UnderlyingSink': " +
+        "provided value is not a function.");
+  }
+  if (abortFn !== undefined && typeof abortFn !== "function") {
+    throw typeError("Failed to convert argument 'abort' of 'UnderlyingSink': " +
+        "provided value is not a function.");
+  }
+  // Bind the sink's methods to the underlying sink object, which is the
+  // callback this value per the spec. Binding lets them be invoked
+  // directly (via [[Call]]) rather than through Function.prototype.call
+  // or .apply.
+  if (startFn !== undefined) {
+    startFn = startFn.bind(underlyingSink);
+  }
+  if (writeFn !== undefined) {
+    writeFn = writeFn.bind(underlyingSink);
+  }
+  if (closeFn !== undefined) {
+    closeFn = closeFn.bind(underlyingSink);
+  }
+  if (abortFn !== undefined) {
+    abortFn = abortFn.bind(underlyingSink);
+  }
+  // The type member is reserved for future use.
+  if (underlyingSink !== null && "type" in underlyingSink) {
+    throw new RangeError(
+        "Writable streams cannot have a type; it is reserved for future use.");
+  }
+
+  // InitializeWritableStream
+  initializeWritableStream(this);
+
+  // ExtractSizeAlgorithm(strategy)
+  var sizeAlgorithm;
+  if (sizeValue === undefined) {
+    sizeAlgorithm = function () {
+      return 1;
+    };
+  } else {
+    sizeAlgorithm = function (chunk) {
+      return sizeValue(chunk);
+    };
+  }
+  // ExtractHighWaterMark(strategy, 1)
+  var highWaterMark;
+  if (highWaterMarkValue === undefined) {
+    highWaterMark = 1;
+  } else {
+    if (highWaterMarkValue !== highWaterMarkValue || highWaterMarkValue < 0) {
+      throw new RangeError("Invalid high water mark: " + highWaterMarkValue);
+    }
+    highWaterMark = highWaterMarkValue;
+  }
+
+  setUpWritableDefaultControllerFromUnderlyingSink(
+      this, startFn, writeFn, closeFn, abortFn, highWaterMark, sizeAlgorithm);
+}
+
+Object.defineProperty(WritableStream.prototype, "locked", {
+  get: function () {
+    return isWritableStreamLocked(this);
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+WritableStream.prototype.abort = function (reason) {
+  if (isWritableStreamLocked(this)) {
+    return Promise.reject(
+        typeError("WritableStream.abort can only be used on unlocked streams"));
+  }
+  return writableStreamAbort(this, reason);
+};
+
+WritableStream.prototype.close = function () {
+  if (isWritableStreamLocked(this)) {
+    return Promise.reject(
+        typeError("WritableStream.close can only be used on unlocked streams"));
+  }
+  if (writableStreamCloseQueuedOrInFlight(this)) {
+    return Promise.reject(
+        typeError("WritableStream.close can only be used once"));
+  }
+  return writableStreamClose(this);
+};
+
+WritableStream.prototype.getWriter = function () {
+  return acquireWritableStreamDefaultWriter(this);
+};
+
+// ======================================================================
+// Piping
+// ======================================================================
+
+// IsAbortSignal(object)
+//
+// The brand check distinguishes genuine platform signals from
+// lookalikes (e.g. Object.create(AbortSignal.prototype)); when the
+// platform provides no brand mechanism (a real browser), the instanceof
+// check is the best available.
+function isAbortSignal(object) {
+  if (object === null || (typeof object !== "object" && typeof object !== "function")) {
+    return false;
+  }
+  if (typeof AbortSignal === "undefined" || !(object instanceof AbortSignal)) {
+    return false;
+  }
+  const brand = AbortSignal.brandSymbol;
+  if (brand === undefined) {
+    return true;
+  }
+  return object[brand] === true;
+}
+
+// ReadableStreamPipeTo(source, dest, preventClose, preventAbort,
+// preventCancel, signal)
+//
+// "In parallel", read all chunks from |source| and write them to |dest|.
+// The reader/writer locking means the pipe is driven purely by the
+// streams' internal machinery: a loop that reads the next chunk whenever
+// the destination's ready promise is fulfilled (enforcing backpressure),
+// and "is or becomes errored/closed" observers on both streams that
+// perform the spec's ordered shutdowns. The reference implementation of
+// the standard (whatwg/streams) structures the pipe the same way; note
+// in particular that reads are not serialized behind writes — the next
+// read is issued as soon as the destination desires more, and chunks
+// queue in the destination until in-flight writes settle.
+function readableStreamPipeTo(source, dest, preventClose, preventAbort, preventCancel, signal) {
+  const reader = acquireReadableStreamDefaultReader(source);
+  const writer = acquireWritableStreamDefaultWriter(dest);
+  source[kDisturbed] = true;
+
+  let shuttingDown = false;
+  // A promise that always fulfills, tracking the most recent write, so
+  // that shutdown can wait for every in-flight write to settle.
+  let currentWrite = Promise.resolve(undefined);
+  const pipeHolder = makePendingPromiseHolder();
+
+  function performFinalize(isError, error) {
+    writableStreamDefaultWriterRelease(writer);
+    defaultReaderRelease(reader);
+    if (signal !== undefined) {
+      signal.removeEventListener("abort", abortAlgorithm);
+    }
+    if (isError) {
+      pipeHolder.reject(error);
+    } else {
+      pipeHolder.resolve(undefined);
+    }
+  }
+
+  function waitForWritesToFinish() {
+    // Another write may have started while we were waiting on this one.
+    const oldCurrentWrite = currentWrite;
+    return currentWrite.then(
+        function () {
+          if (oldCurrentWrite !== currentWrite) {
+            return waitForWritesToFinish();
+          }
+          return undefined;
+        }
+    );
+  }
+
+  function performShutdownWithAction(action, isError, error) {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    if (dest[kState] === "writable" && !writableStreamCloseQueuedOrInFlight(dest)) {
+      waitForWritesToFinish().then(
+          function () {
+            uponPromise(action(), isError, error);
+          }
+      );
+    } else {
+      uponPromise(action(), isError, error);
+    }
+  }
+
+  function performShutdown(isError, error) {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    if (dest[kState] === "writable" && !writableStreamCloseQueuedOrInFlight(dest)) {
+      waitForWritesToFinish().then(
+          function () {
+            performFinalize(isError, error);
+          }
+      );
+    } else {
+      performFinalize(isError, error);
+    }
+  }
+
+  // Run the shutdown action: on fulfillment, finalize with the original
+  // error (if any); on rejection, finalize with the action's error.
+  function uponPromise(actionPromise, isError, error) {
+    actionPromise.then(
+        function () {
+          performFinalize(isError, error);
+        },
+        function (newError) {
+          performFinalize(true, newError);
+        }
+    );
+  }
+
+  // "Is or becomes errored" observers: if the stream is already errored,
+  // the action runs now; otherwise it runs when the reader/writer's
+  // closed promise is rejected (which happens exactly when the stream
+  // errors, or when the lock is released during finalize — a no-op at
+  // that point since shuttingDown is already true).
+  function isOrBecomesErrored(stream, closedPromiseHolder, action) {
+    if (stream[kState] === "errored") {
+      action(stream[kStoredError]);
+    } else {
+      closedPromiseHolder.promise.then(
+          undefined,
+          function (e) {
+            action(e);
+          }
+      );
+    }
+  }
+
+  function isOrBecomesClosed(stream, closedPromiseHolder, action) {
+    if (stream[kState] === "closed") {
+      action();
+    } else {
+      closedPromiseHolder.promise.then(
+          action,
+          function () {}
+      );
+    }
+  }
+
+  function abortAlgorithm() {
+    const error = signal.reason;
+    const actions = [];
+    if (!preventAbort) {
+      actions.push(function () {
+        if (dest[kState] === "writable") {
+          return writableStreamAbort(dest, error);
+        }
+        return Promise.resolve(undefined);
+      });
+    }
+    if (!preventCancel) {
+      actions.push(function () {
+        if (source[kState] === "readable") {
+          return readableStreamCancel(source, error);
+        }
+        return Promise.resolve(undefined);
+      });
+    }
+    performShutdownWithAction(
+        function () {
+          return Promise.all(
+              actions.map(
+                  function (action) {
+                    return action();
+                  }));
+        },
+        true,
+        error);
+  }
+
+  if (signal !== undefined) {
+    if (signal.aborted) {
+      abortAlgorithm();
+      return pipeHolder.promise;
+    }
+    signal.addEventListener("abort", abortAlgorithm);
+  }
+
+  function pipeStep() {
+    if (shuttingDown) {
+      return;
+    }
+    // Gate the next read on the destination's ready promise. When there
+    // is no backpressure the promise is already fulfilled, but going
+    // through it still defers the read by a microtask, which keeps the
+    // pipe's activity off the synchronous call stacks of the streams'
+    // state changes.
+    writer[kReadyPromise].promise.then(
+        function () {
+          defaultReaderRead(reader, {
+            chunk: function (chunk) {
+              const writePromise = writableStreamDefaultWriterWrite(writer, chunk);
+              currentWrite = writePromise.then(
+                  undefined,
+                  function () {}
+              );
+              // Issue the next read now (gated on the ready promise
+              // again), without waiting for the write to settle; the
+              // destination's internal queue and backpressure do the
+              // pacing.
+              pipeStep();
+            },
+            close: function () {
+              // The source closed; the close observers perform the
+              // shutdown. The loop ends.
+            },
+            error: function () {
+              // The source errored; the error observers perform the
+              // shutdown. The loop ends.
+            },
+          });
+        },
+        function () {
+          // The ready promise was rejected (the destination errored).
+          // Backward error propagation is handled by the observers
+          // above; the loop ends.
+        }
+    );
+  }
+
+  // "Errors must be propagated forward".
+  isOrBecomesErrored(
+      source,
+      reader[kClosedPromise],
+      function (storedError) {
+        if (!preventAbort) {
+          performShutdownWithAction(
+              function () {
+                return writableStreamAbort(dest, storedError);
+              },
+              true,
+              storedError);
+        } else {
+          performShutdown(true, storedError);
+        }
+      });
+
+  // "Errors must be propagated backward".
+  isOrBecomesErrored(
+      dest,
+      writer[kClosedPromise],
+      function (storedError) {
+        if (!preventCancel) {
+          performShutdownWithAction(
+              function () {
+                return readableStreamCancel(source, storedError);
+              },
+              true,
+              storedError);
+        } else {
+          performShutdown(true, storedError);
+        }
+      });
+
+  // "Closing must be propagated forward".
+  isOrBecomesClosed(
+      source,
+      reader[kClosedPromise],
+      function () {
+        if (!preventClose) {
+          performShutdownWithAction(
+              function () {
+                return writableStreamDefaultWriterCloseWithErrorPropagation(writer);
+              });
+        } else {
+          performShutdown();
+        }
+      });
+
+  // "Closing must be propagated backward": the destination is closing or
+  // closed before any chunk is read or written.
+  if (writableStreamCloseQueuedOrInFlight(dest) || dest[kState] === "closed") {
+    const destClosed =
+        typeError("the destination writable stream closed before all data could be piped to it");
+    if (!preventCancel) {
+      performShutdownWithAction(
+          function () {
+            return readableStreamCancel(source, destClosed);
+          },
+          true,
+          destClosed);
+    } else {
+      performShutdown(true, destClosed);
+    }
+  }
+
+  pipeStep();
+
+  return pipeHolder.promise;
+}
+
+ReadableStream.prototype.pipeTo = function (destination, options) {
+  // IDL: destination is a WritableStream; a failed conversion is
+  // reported as a rejected promise.
+  if (!isWritableStream(destination)) {
+    return Promise.reject(typeError(
+        "Failed to execute 'pipeTo' on 'ReadableStream': argument is not a WritableStream."));
+  }
+  // Neither stream may be locked; the checks happen before anything is
+  // acquired, so a failing pipeTo leaves both streams unlocked.
+  if (isReadableStreamLocked(this)) {
+    return Promise.reject(
+        typeError("ReadableStream.prototype.pipeTo can only be used on unlocked streams"));
+  }
+  if (isWritableStreamLocked(destination)) {
+    return Promise.reject(
+        typeError("ReadableStream.prototype.pipeTo can only be used on unlocked streams"));
+  }
+  // IDL: options is a StreamPipeOptions dictionary, converted at the IDL
+  // layer. Members are read in the order the WPT suite verifies
+  // (preventAbort, preventCancel, preventClose, signal).
+  let preventAbort = false;
+  let preventCancel = false;
+  let preventClose = false;
+  let signal = undefined;
+  if (options !== undefined && options !== null) {
+    if (typeof options !== "object" && typeof options !== "function") {
+      return Promise.reject(typeError(
+          "Failed to execute 'pipeTo' on 'ReadableStream': options must be an object."));
+    }
+    try {
+      preventAbort = !!options.preventAbort; // may throw via a getter
+      preventCancel = !!options.preventCancel;
+      preventClose = !!options.preventClose;
+      signal = options.signal;
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    if (signal !== undefined && !isAbortSignal(signal)) {
+      return Promise.reject(typeError(
+          "Failed to execute 'pipeTo' on 'ReadableStream': signal is not an AbortSignal."));
+    }
+  }
+  try {
+    return readableStreamPipeTo(
+        this, destination, preventClose, preventAbort, preventCancel, signal);
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
 
 // ======================================================================
 // Teeing
@@ -1253,5 +2549,8 @@ function readableStreamFromIterable(asyncIterable) {
 exports.ReadableStream = ReadableStream;
 exports.ReadableStreamDefaultReader = ReadableStreamDefaultReader;
 exports.ReadableStreamDefaultController = ReadableStreamDefaultController;
+exports.WritableStream = WritableStream;
+exports.WritableStreamDefaultWriter = WritableStreamDefaultWriter;
+exports.WritableStreamDefaultController = WritableStreamDefaultController;
 exports.CountQueuingStrategy = CountQueuingStrategy;
 exports.ByteLengthQueuingStrategy = ByteLengthQueuingStrategy;

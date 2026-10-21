@@ -76,8 +76,10 @@ filegroup(
             "wpt/hr-time/*.any.js",
             "wpt/js/builtins/*.js",
             "wpt/streams/*.any.js",
+            "wpt/streams/piping/*.any.js",
             "wpt/streams/readable-streams/*.any.js",
             "wpt/streams/resources/*.js",
+            "wpt/streams/writable-streams/*.any.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
             "wpt/urlpattern/resources/*.js",
@@ -105,6 +107,20 @@ filegroup(
             # Needs a GC trigger hook (wpt/common/gc.js), which is not
             # available in Rhino.
             "wpt/streams/readable-streams/garbage-collection.any.js",
+            "wpt/streams/writable-streams/garbage-collection.any.js",
+            # Needs the TransformStream class, which is not implemented yet.
+            "wpt/streams/piping/pipe-through.any.js",
+            "wpt/streams/piping/throwing-options.any.js",
+            "wpt/streams/piping/transform-streams.any.js",
+            # Not passable by a pure-JS implementation: the pipe loop
+            # cannot defer the chunk-to-write transition without
+            # Promise.prototype.then, which the test patches. The
+            # standard's reference implementation excludes it too
+            # (whatwg/streams#1243).
+            "wpt/streams/piping/general-addition.any.js",
+            # One test needs readable byte streams (type: "bytes"),
+            # which are not implemented yet.
+            "wpt/streams/piping/abort.any.js",
             # Needs pipeTo/pipeThrough (WritableStream), which is not
             # implemented yet.
             "wpt/streams/readable-streams/patched-global.any.js",

@@ -82,6 +82,89 @@ for (var __i = 0; __i < __domExceptionConstants.length; __i++) {
     });
 }
 
+// A minimal AbortSignal / AbortController, sufficient for the parts of
+// the standards implemented here (the WHATWG "AbortController" standard):
+// construction, the signal's aborted/reason attributes, abort(reason)
+// with the DOMException default, the AbortSignal.abort() static, and
+// "abort" event listeners (which the spec requires to run synchronously
+// when the signal is aborted).
+//
+// Genuine signal instances are branded (via brandSymbol) so that
+// implementations can distinguish them from lookalikes such as
+// Object.create(AbortSignal.prototype).
+var AbortSignal = function () {
+    this._aborted = false;
+    this._reason = undefined;
+    this._listeners = [];
+    this[AbortSignal.brandSymbol] = true;
+};
+
+AbortSignal.brandSymbol = Symbol("AbortSignal brand");
+
+Object.defineProperty(AbortSignal.prototype, "aborted", {
+    get: function () {
+        return this._aborted;
+    },
+    enumerable: false,
+    configurable: true
+});
+
+Object.defineProperty(AbortSignal.prototype, "reason", {
+    get: function () {
+        return this._reason;
+    },
+    enumerable: false,
+    configurable: true
+});
+
+AbortSignal.prototype.addEventListener = function (type, listener) {
+    if (type === "abort") {
+        this._listeners.push(listener);
+    }
+};
+
+AbortSignal.prototype.removeEventListener = function (type, listener) {
+    if (type !== "abort") {
+        return;
+    }
+    var i = this._listeners.indexOf(listener);
+    if (i >= 0) {
+        this._listeners.splice(i, 1);
+    }
+};
+
+var AbortController = function () {
+    this._signal = new AbortSignal();
+};
+
+Object.defineProperty(AbortController.prototype, "signal", {
+    get: function () {
+        return this._signal;
+    },
+    enumerable: false,
+    configurable: true
+});
+
+AbortSignal.abort = function (reason) {
+    var controller = new AbortController();
+    controller.abort(reason);
+    return controller.signal;
+};
+
+AbortController.prototype.abort = function (reason) {
+    var signal = this._signal;
+    if (signal._aborted) {
+        return;
+    }
+    signal._aborted = true;
+    signal._reason = reason === undefined ?
+        new DOMException("The operation was aborted.", "AbortError") : reason;
+    var listeners = signal._listeners.slice();
+    for (var i = 0; i < listeners.length; i++) {
+        listeners[i].call(signal);
+    }
+};
+
 var structuredClone = function (value) {
     throw new DOMException("The value could not be cloned.", "DataCloneError");
 };
