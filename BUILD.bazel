@@ -79,6 +79,7 @@ filegroup(
             "wpt/streams/piping/*.any.js",
             "wpt/streams/readable-streams/*.any.js",
             "wpt/streams/resources/*.js",
+            "wpt/streams/transform-streams/*.any.js",
             "wpt/streams/writable-streams/*.any.js",
             "wpt/url/resources/*.js",
             "wpt/url/*.any.js",
@@ -108,10 +109,6 @@ filegroup(
             # available in Rhino.
             "wpt/streams/readable-streams/garbage-collection.any.js",
             "wpt/streams/writable-streams/garbage-collection.any.js",
-            # Needs the TransformStream class, which is not implemented yet.
-            "wpt/streams/piping/pipe-through.any.js",
-            "wpt/streams/piping/throwing-options.any.js",
-            "wpt/streams/piping/transform-streams.any.js",
             # Not passable by a pure-JS implementation: the pipe loop
             # cannot defer the chunk-to-write transition without
             # Promise.prototype.then, which the test patches. The
@@ -121,11 +118,10 @@ filegroup(
             # One test needs readable byte streams (type: "bytes"),
             # which are not implemented yet.
             "wpt/streams/piping/abort.any.js",
-            # Needs pipeTo/pipeThrough (WritableStream), which is not
-            # implemented yet.
+            # The tee() and pipeTo() tests that patch Promise.prototype.then
+            # require promise reactions to be registered without calling the
+            # (patched) then method, which a pure-JS implementation cannot do.
             "wpt/streams/readable-streams/patched-global.any.js",
-            "wpt/streams/readable-streams/reentrant-strategies.any.js",
-            "wpt/streams/readable-streams/templated.any.js",
             # Tentative ReadableStream APIs are not implemented yet.
             "wpt/streams/readable-streams/owning-type*",
         ],

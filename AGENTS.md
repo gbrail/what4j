@@ -25,20 +25,20 @@ uses the `performance` binding. JS modules obtain bindings with
 
 WPT coverage note: selected `wpt/url/*.any.js`, `wpt/urlpattern/*.any.js`,
 `wpt/encoding/*.any.js`, `wpt/hr-time/*.any.js`, and non-byte
-`wpt/streams` readable, writable, and piping files run today (the root
-`BUILD.bazel` filegroups and each test class's `@TestBaseDir` annotations
-select what is available). HTML and `.window.js` tests (which need a DOM)
-and `idlharness.any.js` (needs the WebIDL test harness) are intentionally
-excluded for now. Legacy single-byte/multi-byte encodings,
+`wpt/streams` readable, writable, transform, and piping files run today
+(the root `BUILD.bazel` filegroups and each test class's `@TestBaseDir`
+annotations select what is available). HTML and `.window.js` tests (which
+need a DOM) and `idlharness.any.js` (needs the WebIDL test harness) are
+intentionally excluded for now. Legacy single-byte/multi-byte encodings,
 `TextEncoder.prototype.encodeInto`, and encoding streams are also excluded
 for now. The rest of the Performance Timeline API (User Timing entries,
 `PerformanceObserver`) is not implemented. For streams, readable byte
-streams and transform streams (hence pipeThrough) are not implemented yet,
-and the streams tests that need async generator syntax (which the current
-Babel setup leaves untranspiled and Rhino cannot parse), GC hooks, a
-byte-stream pipeTo case, or a `Promise.prototype.then` that the engine
-registers reactions without calling are excluded (see the comments in the
-root `BUILD.bazel` filegroup and in `StreamsTest`).
+streams (`type: "bytes"`) are not implemented yet, and the streams tests
+that need async generator syntax (which the current Babel setup leaves
+untranspiled and Rhino cannot parse), GC hooks, a byte-stream pipeTo case,
+or a `Promise.prototype.then` that the engine registers reactions without
+calling are excluded (see the comments in the root `BUILD.bazel` filegroup
+and in `StreamsTest`).
 
 ## Repository layout
 

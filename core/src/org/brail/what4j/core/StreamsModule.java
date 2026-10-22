@@ -14,6 +14,10 @@ import java.util.List;
  *   <li>Readable streams and queuing strategies (Streams: ReadableStream,
  *       ReadableStreamDefaultReader, ReadableStreamDefaultController, CountQueuingStrategy,
  *       ByteLengthQueuingStrategy)
+ *   <li>Writable streams (Streams: WritableStream, WritableStreamDefaultWriter,
+ *       WritableStreamDefaultController)
+ *   <li>Transform streams (Streams: TransformStream, TransformStreamDefaultController)
+ *   <li>Piping (Streams: ReadableStream.pipeTo, ReadableStream.pipeThrough)
  * </ul>
  */
 public class StreamsModule {

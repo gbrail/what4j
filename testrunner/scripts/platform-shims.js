@@ -7,6 +7,43 @@ var GLOBAL = {
     }
 };
 
+// A minimal setTimeout/clearTimeout.
+//
+// There is no event loop in this environment: the test harness runs the
+// test script, then drains the microtask queue exactly once. A browser's
+// setTimeout(cb, 0) fires as a macrotask, i.e. after the current
+// microtask queue (and the microtasks it enqueues) has drained, which
+// gives in-flight promise chains a chance to settle before cb runs. The
+// approximation below fires cb after a fixed number of microtask hops
+// (at least 30), which reproduces that ordering for the WPT suites run
+// here without stalling the single drain. The test harness uses the
+// global setTimeout when present (otherwise it falls back to its own
+// one-microtask fake_set_timeout). The first hop runs synchronously, so
+// the callback fires after (hops - 1) queued microtasks.
+var __timers = [];
+var setTimeout = function (callback, delay) {
+    var timer = { cancelled: false };
+    __timers.push(timer);
+    var hops = Math.max(30, Math.ceil(Number(delay) || 0));
+    var p = Promise.resolve();
+    (function hop() {
+        if (timer.cancelled) {
+            return;
+        }
+        if (hops-- > 0) {
+            p.then(hop);
+        } else {
+            callback();
+        }
+    })();
+    return timer;
+};
+var clearTimeout = function (timer) {
+    if (timer) {
+        timer.cancelled = true;
+    }
+};
+
 var __domExceptionCodes = {
     IndexSizeError: 1,
     DOMStringSizeError: 2,
@@ -37,12 +74,16 @@ var __domExceptionCodes = {
 
 var DOMException = function (message, name) {
     var err = new Error(message);
-    err.constructor = DOMException;
     err.name = name || "Error";
     err.code = __domExceptionCodes[err.name] || 0;
+    // Give the instance the DOMException prototype chain (per the spec,
+    // DOMException inherits from Error) so that `instanceof DOMException`
+    // and `instanceof Error` both work.
+    Object.setPrototypeOf(err, DOMException.prototype);
     return err;
 };
 
+DOMException.prototype = Object.create(Error.prototype);
 DOMException.prototype.constructor = DOMException;
 
 var __domExceptionConstants = [

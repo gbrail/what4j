@@ -1,16 +1,17 @@
-// WHATWG Streams: readable and writable streams, and queuing strategies.
+// WHATWG Streams: readable and writable streams, transform streams, and
+// queuing strategies.
 //
 // Implements the ReadableStream class (with its default controller and
 // default reader), the ReadableStreamDefaultReader class, the
 // ReadableStream.from() static, ReadableStream.tee(), and asynchronous
 // iteration over readable streams; the WritableStream class (with its
-// default controller and default writer); ReadableStream.pipeTo()
-// (piping), and the CountQueuingStrategy and ByteLengthQueuingStrategy
-// built-in queuing strategies, as specified in the WHATWG Streams
-// standard (specs/streams.bs).
+// default controller and default writer); the TransformStream class
+// (with its default controller); ReadableStream.pipeTo() (piping) and
+// ReadableStream.pipeThrough(); and the CountQueuingStrategy and
+// ByteLengthQueuingStrategy built-in queuing strategies, as specified in
+// the WHATWG Streams standard (specs/streams.bs).
 //
-// Readable byte streams (type: "bytes"), transform streams, and
-// pipeThrough() are not implemented yet.
+// Readable byte streams (type: "bytes") are not implemented yet.
 
 // Well-known symbols that the pinned Rhino build does not define. Babel's
 // async-to-promises helpers use the same fallback, so defining these here
@@ -74,6 +75,18 @@ const kReadyPromise = Symbol("readyPromise");
 // Sentinel enqueued into a writable stream's queue in lieu of a chunk to
 // signal that the stream is closed.
 const kCloseSentinel = Symbol("closeSentinel");
+
+// TransformStream slots. (kController and kBackpressure are shared with
+// the same-named slots; they live on different objects.)
+const kReadable = Symbol("readable");
+const kWritable = Symbol("writable");
+const kBackpressureChangePromise = Symbol("backpressureChangePromise");
+
+// TransformStreamDefaultController slots. (kStream and kCancelAlgorithm
+// are shared with the same-named slots of the other controllers.)
+const kFinishPromise = Symbol("finishPromise");
+const kTransformAlgorithm = Symbol("transformAlgorithm");
+const kFlushAlgorithm = Symbol("flushAlgorithm");
 
 // Queue a microtask (the spec's "perform a microtask checkpoint"). The
 // native binding enqueues the job directly on the engine's microtask queue
@@ -1133,6 +1146,15 @@ function writableStreamFinishErroring(stream) {
     writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
     return;
   }
+  // The abort happened while the stream was already erroring, so the
+  // abort algorithm is never run; the request is rejected with the
+  // error that is already in flight. (Running the algorithm here would
+  // also be wrong after the controller's error() already cleared it.)
+  if (abortRequest.wasAlreadyErroring) {
+    abortRequest.reject(storedError);
+    writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
+    return;
+  }
   const promise = writableDefaultControllerAbortSteps(controller, abortRequest.reason);
   promise.then(
       function () {
@@ -1952,6 +1974,37 @@ WritableStream.prototype.getWriter = function () {
   return acquireWritableStreamDefaultWriter(this);
 };
 
+// CreateWritableStream(startAlgorithm, writeAlgorithm, closeAlgorithm,
+// abortAlgorithm, highWaterMark, sizeAlgorithm)
+//
+// Internal construction path mirroring createReadableStream: the stream
+// and its controller are created directly from the given algorithms,
+// with no underlying sink object. Used by the TransformStream
+// constructor.
+function createWritableStream(
+    startAlgorithm,
+    writeAlgorithm,
+    closeAlgorithm,
+    abortAlgorithm,
+    highWaterMark,
+    sizeAlgorithm
+) {
+  const stream = Object.create(WritableStream.prototype);
+  initializeWritableStream(stream);
+  const controller = Object.create(WritableStreamDefaultController.prototype);
+  setUpWritableDefaultController(
+      stream,
+      controller,
+      startAlgorithm,
+      writeAlgorithm,
+      closeAlgorithm,
+      abortAlgorithm,
+      highWaterMark,
+      sizeAlgorithm
+  );
+  return stream;
+}
+
 // ======================================================================
 // Piping
 // ======================================================================
@@ -2302,6 +2355,72 @@ ReadableStream.prototype.pipeTo = function (destination, options) {
   }
 };
 
+ReadableStream.prototype.pipeThrough = function (transform, options) {
+  // Web IDL brand check on `this`.
+  if (!isReadableStream(this)) {
+    throw typeError(
+        "ReadableStream.prototype.pipeThrough can only be used on a ReadableStream.");
+  }
+  // IDL: transform is converted as a ReadableWritablePair dictionary:
+  // the members are read in the order readable, writable, and each is
+  // brand-checked. A getter that throws propagates that error.
+  const transformReadable = transform.readable; // may throw
+  if (!isReadableStream(transformReadable)) {
+    throw typeError(
+        "Failed to execute 'pipeThrough' on 'ReadableStream': readable is not a ReadableStream.");
+  }
+  const transformWritable = transform.writable; // may throw
+  if (!isWritableStream(transformWritable)) {
+    throw typeError(
+        "Failed to execute 'pipeThrough' on 'ReadableStream': writable is not a WritableStream.");
+  }
+  // IDL: options is a StreamPipeOptions dictionary, converted at the IDL
+  // layer. Members are read in the order the WPT suite verifies
+  // (preventAbort, preventCancel, preventClose, signal).
+  let preventAbort = false;
+  let preventCancel = false;
+  let preventClose = false;
+  let signal = undefined;
+  if (options !== undefined && options !== null) {
+    if (typeof options !== "object" && typeof options !== "function") {
+      throw typeError(
+          "Failed to execute 'pipeThrough' on 'ReadableStream': options must be an object.");
+    }
+    preventAbort = !!options.preventAbort; // may throw via a getter
+    preventCancel = !!options.preventCancel;
+    preventClose = !!options.preventClose;
+    signal = options.signal;
+    if (signal !== undefined && !isAbortSignal(signal)) {
+      throw typeError(
+          "Failed to execute 'pipeThrough' on 'ReadableStream': signal is not an AbortSignal.");
+    }
+  }
+  // Neither stream may be locked; the checks happen after the argument
+  // conversion, so a failing option getter that locks the writable side
+  // still causes a throw.
+  if (isReadableStreamLocked(this)) {
+    throw typeError(
+        "ReadableStream.prototype.pipeThrough can only be used on unlocked streams");
+  }
+  if (isWritableStreamLocked(transformWritable)) {
+    throw typeError(
+        "ReadableStream.prototype.pipeThrough can only be used on unlocked streams");
+  }
+  // The pipe is performed with the internal algorithm, not via
+  // ReadableStream.prototype.pipeTo, which user code may have
+  // overridden.
+  const promise = readableStreamPipeTo(
+      this, transformWritable, preventClose, preventAbort, preventCancel, signal);
+  // Set promise.[[PromiseIsHandled]] to true: the pipe's fate is
+  // observed through the readable side, so the promise itself never
+  // escapes to user code.
+  promise.then(
+      undefined,
+      function () {}
+  );
+  return transformReadable;
+};
+
 // ======================================================================
 // Teeing
 // ======================================================================
@@ -2411,6 +2530,517 @@ function readableStreamDefaultTee(stream, cloneForBranch2) {
 
   return [branch1, branch2];
 }
+
+// ======================================================================
+// TransformStream
+// ======================================================================
+
+// TransformStreamSetBackpressure(stream, backpressure)
+function transformStreamSetBackpressure(stream, backpressure) {
+  const old = stream[kBackpressureChangePromise];
+  if (old !== undefined) {
+    old.resolve(undefined);
+  }
+  stream[kBackpressureChangePromise] = makePendingPromiseHolder();
+  stream[kBackpressure] = backpressure;
+}
+
+// TransformStreamUnblockWrite(stream)
+function transformStreamUnblockWrite(stream) {
+  if (stream[kBackpressure] === true) {
+    transformStreamSetBackpressure(stream, false);
+  }
+}
+
+// TransformStreamError(stream, e)
+function transformStreamError(stream, e) {
+  defaultControllerError(stream[kReadable][kController], e);
+  transformStreamErrorWritableAndUnblockWrite(stream, e);
+}
+
+// TransformStreamErrorWritableAndUnblockWrite(stream, e)
+function transformStreamErrorWritableAndUnblockWrite(stream, e) {
+  transformStreamDefaultControllerClearAlgorithms(stream[kController]);
+  writableDefaultControllerErrorIfNeeded(stream[kWritable][kController], e);
+  transformStreamUnblockWrite(stream);
+}
+
+// TransformStreamDefaultControllerClearAlgorithms(controller)
+function transformStreamDefaultControllerClearAlgorithms(controller) {
+  controller[kTransformAlgorithm] = undefined;
+  controller[kFlushAlgorithm] = undefined;
+  controller[kCancelAlgorithm] = undefined;
+}
+
+// TransformStreamDefaultControllerEnqueue(controller, chunk). May throw
+// a TypeError (readable side not enqueuable) or the readable side's
+// stored error (e.g. when the strategy's size function throws).
+function transformStreamDefaultControllerEnqueue(controller, chunk) {
+  const stream = controller[kStream];
+  const readableController = stream[kReadable][kController];
+  if (!defaultControllerCanCloseOrEnqueue(readableController)) {
+    throw typeError(
+        "TransformStreamDefaultController.enqueue can only be used when not closed or errored");
+  }
+  try {
+    defaultControllerEnqueue(readableController, chunk);
+  } catch (e) {
+    transformStreamErrorWritableAndUnblockWrite(stream, e);
+    throw stream[kReadable][kStoredError];
+  }
+  // ReadableStreamDefaultControllerHasBackpressure(readableController):
+  // the readable side has backpressure when it does not want to pull.
+  if (!defaultControllerShouldCallPull(readableController) &&
+      stream[kBackpressure] !== true) {
+    transformStreamSetBackpressure(stream, true);
+  }
+}
+
+// TransformStreamDefaultControllerPerformTransform(controller, chunk)
+function transformStreamDefaultControllerPerformTransform(controller, chunk) {
+  const stream = controller[kStream];
+  const transformPromise = controller[kTransformAlgorithm](chunk);
+  return Promise.resolve(transformPromise).then(
+      undefined,
+      function (r) {
+        transformStreamError(stream, r);
+        throw r;
+      }
+  );
+}
+
+// TransformStreamDefaultControllerTerminate(controller)
+function transformStreamDefaultControllerTerminate(controller) {
+  const stream = controller[kStream];
+  defaultControllerClose(stream[kReadable][kController]);
+  const error = typeError("TransformStream terminated");
+  transformStreamErrorWritableAndUnblockWrite(stream, error);
+}
+
+// The public controller interface. The object is created internally by
+// the stream implementation; the constructor exists for the Web IDL
+// surface only.
+function TransformStreamDefaultController() {
+  throw typeError("TransformStreamDefaultController instances cannot be created directly.");
+}
+
+Object.defineProperty(TransformStreamDefaultController.prototype, "desiredSize", {
+  get: function () {
+    return defaultControllerGetDesiredSize(this[kStream][kReadable][kController]);
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+TransformStreamDefaultController.prototype.enqueue = function (chunk) {
+  transformStreamDefaultControllerEnqueue(this, chunk);
+};
+
+TransformStreamDefaultController.prototype.error = function (e) {
+  transformStreamError(this[kStream], e);
+};
+
+TransformStreamDefaultController.prototype.terminate = function () {
+  transformStreamDefaultControllerTerminate(this);
+};
+
+// TransformStreamDefaultSinkWriteAlgorithm(stream, chunk)
+function transformStreamDefaultSinkWriteAlgorithm(stream, chunk) {
+  const controller = stream[kController];
+  if (stream[kBackpressure] === true) {
+    return stream[kBackpressureChangePromise].promise.then(
+        function () {
+          const writable = stream[kWritable];
+          const state = writable[kState];
+          if (state === "erroring") {
+            throw writable[kStoredError];
+          }
+          // State is "writable".
+          return transformStreamDefaultControllerPerformTransform(controller, chunk);
+        }
+    );
+  }
+  return transformStreamDefaultControllerPerformTransform(controller, chunk);
+}
+
+// TransformStreamDefaultSinkAbortAlgorithm(stream, reason)
+function transformStreamDefaultSinkAbortAlgorithm(stream, reason) {
+  const controller = stream[kController];
+  const existingFinish = controller[kFinishPromise];
+  if (existingFinish !== undefined) {
+    return existingFinish.promise;
+  }
+  const readable = stream[kReadable];
+  const finishHolder = makePendingPromiseHolder();
+  controller[kFinishPromise] = finishHolder;
+  const cancelPromise = controller[kCancelAlgorithm](reason);
+  transformStreamDefaultControllerClearAlgorithms(controller);
+  Promise.resolve(cancelPromise).then(
+      function () {
+        if (readable[kState] === "errored") {
+          finishHolder.reject(readable[kStoredError]);
+        } else {
+          defaultControllerError(readable[kController], reason);
+          finishHolder.resolve(undefined);
+        }
+      },
+      function (r) {
+        defaultControllerError(readable[kController], r);
+        finishHolder.reject(r);
+      }
+  );
+  return finishHolder.promise;
+}
+
+// TransformStreamDefaultSinkCloseAlgorithm(stream)
+function transformStreamDefaultSinkCloseAlgorithm(stream) {
+  const controller = stream[kController];
+  const existingFinish = controller[kFinishPromise];
+  if (existingFinish !== undefined) {
+    return existingFinish.promise;
+  }
+  const readable = stream[kReadable];
+  const finishHolder = makePendingPromiseHolder();
+  controller[kFinishPromise] = finishHolder;
+  const flushPromise = controller[kFlushAlgorithm]();
+  transformStreamDefaultControllerClearAlgorithms(controller);
+  Promise.resolve(flushPromise).then(
+      function () {
+        if (readable[kState] === "errored") {
+          finishHolder.reject(readable[kStoredError]);
+        } else {
+          defaultControllerClose(readable[kController]);
+          finishHolder.resolve(undefined);
+        }
+      },
+      function (r) {
+        defaultControllerError(readable[kController], r);
+        finishHolder.reject(r);
+      }
+  );
+  return finishHolder.promise;
+}
+
+// TransformStreamDefaultSourcePullAlgorithm(stream)
+//
+// Invariant: pull() is only called while the transform stream's
+// backpressure is true. The invariant is enforced by the promises
+// returned by start() and pull(): the pull promise is the
+// backpressure change promise, which only resolves once the
+// backpressure is true again, and the readable side never starts a new
+// pull while one is in flight.
+function transformStreamDefaultSourcePullAlgorithm(stream) {
+  transformStreamSetBackpressure(stream, false);
+  return stream[kBackpressureChangePromise].promise;
+}
+
+// TransformStreamDefaultSourceCancelAlgorithm(stream, reason)
+function transformStreamDefaultSourceCancelAlgorithm(stream, reason) {
+  const controller = stream[kController];
+  const existingFinish = controller[kFinishPromise];
+  if (existingFinish !== undefined) {
+    return existingFinish.promise;
+  }
+  const writable = stream[kWritable];
+  const finishHolder = makePendingPromiseHolder();
+  controller[kFinishPromise] = finishHolder;
+  const cancelPromise = controller[kCancelAlgorithm](reason);
+  transformStreamDefaultControllerClearAlgorithms(controller);
+  Promise.resolve(cancelPromise).then(
+      function () {
+        if (writable[kState] === "errored") {
+          finishHolder.reject(writable[kStoredError]);
+        } else {
+          writableDefaultControllerErrorIfNeeded(writable[kController], reason);
+          transformStreamUnblockWrite(stream);
+          finishHolder.resolve(undefined);
+        }
+      },
+      function (r) {
+        writableDefaultControllerErrorIfNeeded(writable[kController], r);
+        transformStreamUnblockWrite(stream);
+        finishHolder.reject(r);
+      }
+  );
+  return finishHolder.promise;
+}
+
+function TransformStream(transformer, writableStrategy, readableStrategy) {
+  // IDL: transformer is an optional object argument. null and
+  // non-object values are not convertible; missing or undefined becomes
+  // null.
+  if (transformer === null) {
+    throw typeError("Failed to construct 'TransformStream': " +
+        "transformer must not be null.");
+  }
+  if (transformer !== undefined &&
+      typeof transformer !== "object" &&
+      typeof transformer !== "function") {
+    throw typeError("Failed to construct 'TransformStream': " +
+        "transformer must be an object.");
+  }
+  // IDL: writableStrategy and readableStrategy are optional
+  // QueuingStrategy dictionary arguments, converted at the IDL layer.
+  if (writableStrategy === undefined || writableStrategy === null) {
+    writableStrategy = {};
+  }
+  if (typeof writableStrategy !== "object" && typeof writableStrategy !== "function") {
+    throw typeError("Failed to construct 'TransformStream': " +
+        "writableStrategy must be an object.");
+  }
+  if (readableStrategy === undefined || readableStrategy === null) {
+    readableStrategy = {};
+  }
+  if (typeof readableStrategy !== "object" && typeof readableStrategy !== "function") {
+    throw typeError("Failed to construct 'TransformStream': " +
+        "readableStrategy must be an object.");
+  }
+
+  if (transformer === undefined) {
+    transformer = null;
+  }
+
+  // Convert the transformer to a Transformer dictionary (members read
+  // in declaration order).
+  var startFn;
+  var transformFn;
+  var flushFn;
+  var cancelFn;
+  if (transformer !== null) {
+    startFn = transformer.start; // may throw
+    transformFn = transformer.transform; // may throw
+    flushFn = transformer.flush; // may throw
+    cancelFn = transformer.cancel; // may throw
+  }
+  if (startFn !== undefined && typeof startFn !== "function") {
+    throw typeError("Failed to convert argument 'start' of 'Transformer': " +
+        "provided value is not a function.");
+  }
+  if (transformFn !== undefined && typeof transformFn !== "function") {
+    throw typeError("Failed to convert argument 'transform' of 'Transformer': " +
+        "provided value is not a function.");
+  }
+  if (flushFn !== undefined && typeof flushFn !== "function") {
+    throw typeError("Failed to convert argument 'flush' of 'Transformer': " +
+        "provided value is not a function.");
+  }
+  if (cancelFn !== undefined && typeof cancelFn !== "function") {
+    throw typeError("Failed to convert argument 'cancel' of 'Transformer': " +
+        "provided value is not a function.");
+  }
+  // The type members are reserved for future use.
+  if (transformer !== null && "readableType" in transformer) {
+    throw new RangeError("Invalid readableType specified");
+  }
+  if (transformer !== null && "writableType" in transformer) {
+    throw new RangeError("Invalid writableType specified");
+  }
+  // Bind the transformer's methods to the transformer object, which is
+  // the callback this value per the spec. Binding lets them be invoked
+  // directly (via [[Call]]) rather than through Function.prototype.call
+  // or .apply.
+  if (startFn !== undefined) {
+    startFn = startFn.bind(transformer);
+  }
+  if (transformFn !== undefined) {
+    transformFn = transformFn.bind(transformer);
+  }
+  if (flushFn !== undefined) {
+    flushFn = flushFn.bind(transformer);
+  }
+  if (cancelFn !== undefined) {
+    cancelFn = cancelFn.bind(transformer);
+  }
+
+  // ExtractSizeAlgorithm / ExtractHighWaterMark; the readable strategy
+  // is extracted before the writable strategy, and highWaterMark before
+  // size within each.
+  var readableHighWaterMarkValue = readableStrategy.highWaterMark; // may throw
+  if (readableHighWaterMarkValue !== undefined) {
+    readableHighWaterMarkValue = Number(readableHighWaterMarkValue);
+  }
+  var readableSizeValue = readableStrategy.size; // may throw
+  if (readableSizeValue !== undefined && typeof readableSizeValue !== "function") {
+    throw typeError(
+        "Failed to convert argument 'size' of 'QueuingStrategy': provided value is not a function.");
+  }
+  var writableHighWaterMarkValue = writableStrategy.highWaterMark; // may throw
+  if (writableHighWaterMarkValue !== undefined) {
+    writableHighWaterMarkValue = Number(writableHighWaterMarkValue);
+  }
+  var writableSizeValue = writableStrategy.size; // may throw
+  if (writableSizeValue !== undefined && typeof writableSizeValue !== "function") {
+    throw typeError(
+        "Failed to convert argument 'size' of 'QueuingStrategy': provided value is not a function.");
+  }
+
+  var readableSizeAlgorithm;
+  if (readableSizeValue === undefined) {
+    readableSizeAlgorithm = function () {
+      return 1;
+    };
+  } else {
+    readableSizeAlgorithm = function (chunk) {
+      return readableSizeValue(chunk);
+    };
+  }
+  var readableHighWaterMark;
+  if (readableHighWaterMarkValue === undefined) {
+    readableHighWaterMark = 0;
+  } else {
+    if (readableHighWaterMarkValue !== readableHighWaterMarkValue ||
+        readableHighWaterMarkValue < 0) {
+      throw new RangeError("Invalid high water mark: " + readableHighWaterMarkValue);
+    }
+    readableHighWaterMark = readableHighWaterMarkValue;
+  }
+  var writableSizeAlgorithm;
+  if (writableSizeValue === undefined) {
+    writableSizeAlgorithm = function () {
+      return 1;
+    };
+  } else {
+    writableSizeAlgorithm = function (chunk) {
+      return writableSizeValue(chunk);
+    };
+  }
+  var writableHighWaterMark;
+  if (writableHighWaterMarkValue === undefined) {
+    writableHighWaterMark = 1;
+  } else {
+    if (writableHighWaterMarkValue !== writableHighWaterMarkValue ||
+        writableHighWaterMarkValue < 0) {
+      throw new RangeError("Invalid high water mark: " + writableHighWaterMarkValue);
+    }
+    writableHighWaterMark = writableHighWaterMarkValue;
+  }
+
+  const stream = this;
+
+  // InitializeTransformStream. Both sides share the start algorithm.
+  // It returns an adoption wrapper (a promise that resolves with the
+  // start promise) rather than the start promise itself, mirroring the
+  // reference implementation's promiseResolvedWith(): the sides' start
+  // reactions then run one microtask after the constructor resolves the
+  // start promise, which preserves the spec's ordering of those
+  // reactions relative to reactions scheduled synchronously after
+  // construction (e.g. by a readable.cancel() in the same task).
+  const startPromiseHolder = makePendingPromiseHolder();
+  const startAlgorithm = function () {
+    return new Promise(function (resolve) {
+      resolve(startPromiseHolder.promise);
+    });
+  };
+  const writeAlgorithm = function (chunk) {
+    return transformStreamDefaultSinkWriteAlgorithm(stream, chunk);
+  };
+  const closeAlgorithm = function () {
+    return transformStreamDefaultSinkCloseAlgorithm(stream);
+  };
+  const abortAlgorithm = function (reason) {
+    return transformStreamDefaultSinkAbortAlgorithm(stream, reason);
+  };
+  const pullAlgorithm = function () {
+    return transformStreamDefaultSourcePullAlgorithm(stream);
+  };
+  const sourceCancelAlgorithm = function (reason) {
+    return transformStreamDefaultSourceCancelAlgorithm(stream, reason);
+  };
+  stream[kWritable] = createWritableStream(
+      startAlgorithm, writeAlgorithm, closeAlgorithm, abortAlgorithm,
+      writableHighWaterMark, writableSizeAlgorithm);
+  stream[kReadable] = createReadableStream(
+      startAlgorithm, pullAlgorithm, sourceCancelAlgorithm,
+      readableHighWaterMark, readableSizeAlgorithm);
+  transformStreamSetBackpressure(stream, true);
+  stream[kController] = undefined;
+
+  // SetUpTransformStreamDefaultControllerFromTransformer.
+  const controller = Object.create(TransformStreamDefaultController.prototype);
+  controller[kStream] = stream;
+  stream[kController] = controller;
+  controller[kFinishPromise] = undefined;
+
+  // The WebIDL callbacks (transform/flush/cancel) return promises; a
+  // thrown exception is converted to a rejected promise, and a returned
+  // promise/thenable is adopted (through a new promise, per the WebIDL
+  // callback conversion), which matters for microtask ordering.
+  var transformAlgorithm = function (chunk) {
+    try {
+      transformStreamDefaultControllerEnqueue(controller, chunk);
+      return Promise.resolve(undefined);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+  var flushAlgorithm = function () {
+    return Promise.resolve(undefined);
+  };
+  var cancelAlgorithm = function () {
+    return Promise.resolve(undefined);
+  };
+  if (transformFn !== undefined) {
+    transformAlgorithm = function (chunk) {
+      try {
+        return new Promise(function (resolve) {
+          resolve(transformFn(chunk, controller));
+        });
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+  if (flushFn !== undefined) {
+    flushAlgorithm = function () {
+      try {
+        return new Promise(function (resolve) {
+          resolve(flushFn(controller));
+        });
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+  if (cancelFn !== undefined) {
+    cancelAlgorithm = function (reason) {
+      try {
+        return new Promise(function (resolve) {
+          resolve(cancelFn(reason));
+        });
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  }
+  controller[kTransformAlgorithm] = transformAlgorithm;
+  controller[kFlushAlgorithm] = flushAlgorithm;
+  controller[kCancelAlgorithm] = cancelAlgorithm;
+
+  // Resolve the start promise with the result of invoking the
+  // transformer's start method. A thrown exception is re-thrown by the
+  // constructor.
+  if (startFn !== undefined) {
+    startPromiseHolder.resolve(startFn(controller));
+  } else {
+    startPromiseHolder.resolve(undefined);
+  }
+}
+
+Object.defineProperty(TransformStream.prototype, "readable", {
+  get: function () {
+    return this[kReadable];
+  },
+  enumerable: false,
+  configurable: true,
+});
+
+Object.defineProperty(TransformStream.prototype, "writable", {
+  get: function () {
+    return this[kWritable];
+  },
+  enumerable: false,
+  configurable: true,
+});
 
 // ======================================================================
 // ReadableStream.from (async sequences)
@@ -2552,5 +3182,7 @@ exports.ReadableStreamDefaultController = ReadableStreamDefaultController;
 exports.WritableStream = WritableStream;
 exports.WritableStreamDefaultWriter = WritableStreamDefaultWriter;
 exports.WritableStreamDefaultController = WritableStreamDefaultController;
+exports.TransformStream = TransformStream;
+exports.TransformStreamDefaultController = TransformStreamDefaultController;
 exports.CountQueuingStrategy = CountQueuingStrategy;
 exports.ByteLengthQueuingStrategy = ByteLengthQueuingStrategy;

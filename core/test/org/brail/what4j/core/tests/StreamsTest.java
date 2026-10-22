@@ -14,7 +14,6 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
       "idlharness.any.js",
       "crashtests/",
       "readable-byte-streams/",
-      "transform-streams/",
       "transferable/",
       // Tentative spec.
       "owning-type",
@@ -24,10 +23,6 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
       "from.any.js",
       // Needs a GC trigger hook (wpt/common/gc.js).
       "garbage-collection.any.js",
-      // Needs the TransformStream class, which is not implemented yet.
-      "piping/pipe-through.any.js",
-      "piping/throwing-options.any.js",
-      "piping/transform-streams.any.js",
       // Not passable by a pure-JS implementation (see whatwg/streams#1243;
       // the standard's reference implementation excludes it too).
       "piping/general-addition.any.js",
@@ -37,7 +32,7 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
       // The tee() and pipeTo() tests that patch Promise.prototype.then
       // require promise reactions to be registered without calling the
       // (patched) then method, which a pure-JS implementation cannot do.
-      "patched-global.any.js",
+      "readable-streams/patched-global.any.js",
     })
 public class StreamsTest extends BaseTest {
   @Override
