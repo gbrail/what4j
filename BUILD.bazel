@@ -77,6 +77,7 @@ filegroup(
             "wpt/hr-time/*.any.js",
             "wpt/js/builtins/*.js",
             "wpt/streams/*.any.js",
+            "wpt/streams/**/crashtests/*.any.js",
             "wpt/streams/piping/*.any.js",
             "wpt/streams/readable-streams/*.any.js",
             "wpt/streams/resources/*.js",

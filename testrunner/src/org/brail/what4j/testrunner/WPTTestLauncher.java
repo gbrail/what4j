@@ -89,6 +89,8 @@ public class WPTTestLauncher {
     // Tools used by the test framework to hook into our stuff
     TestUtils.init(cx, scope);
     scope.put("__testDefer", scope, new LambdaFunction(scope, "defer", 1, WPTTestLauncher::defer));
+    // V8/SpiderMonkey-style manual GC trigger hook (wpt/common/gc.js).
+    scope.put("gc", scope, new LambdaFunction(scope, "gc", 0, WPTTestLauncher::gc));
     for (var c : setupCallbacks) {
       c.accept(cx, scope);
     }
@@ -102,6 +104,11 @@ public class WPTTestLauncher {
         () -> {
           deferFunc.call(cx, scope, null, ScriptRuntime.emptyArgs);
         });
+    return Undefined.instance;
+  }
+
+  private static Object gc(Context cx, VarScope scope, Object to, Object[] args) {
+    System.gc();
     return Undefined.instance;
   }
 

@@ -35,10 +35,15 @@ for now. The rest of the Performance Timeline API (User Timing entries,
 `PerformanceObserver`) is not implemented. For streams, readable byte
 streams (`type: "bytes"`) are not implemented yet, and the streams tests
 that need async generator syntax (which the current Babel setup leaves
-untranspiled and Rhino cannot parse), GC hooks, a byte-stream pipeTo case,
-or a `Promise.prototype.then` that the engine registers reactions without
-calling are excluded (see the comments in the root `BUILD.bazel` filegroup
-and in `StreamsTest`).
+untranspiled and Rhino cannot parse), or a byte-stream pipeTo case are
+excluded, along with two others whose reasons are documented in
+`StreamsTest`: a pipeTo() test asserting the write algorithm never runs
+synchronously (open spec issue whatwg/streams#1243, which the standard's
+own reference implementation also excludes), and the tee()/pipeTo()
+subtests that patch `Promise.prototype.then` (passing them requires
+routing all internal promise operations through the original `Promise`
+machinery captured at module load, as the standard's reference
+implementation does).
 
 ## Repository layout
 
