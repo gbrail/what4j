@@ -33,6 +33,10 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
       // require promise reactions to be registered without calling the
       // (patched) then method, which a pure-JS implementation cannot do.
       "readable-streams/patched-global.any.js",
+      // Tentative specs not supported yet
+      "owning-type-message-port.tentative.any.js",
+      "owning-type.tentative.any.js",
+      "owning-type-video-frame.tentative.any.js",
     })
 public class StreamsTest extends BaseTest {
   @Override

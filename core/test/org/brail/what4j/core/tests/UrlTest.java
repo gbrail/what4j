@@ -8,7 +8,16 @@ import org.brail.what4j.testrunner.WPTTestLauncher;
 
 import java.io.IOException;
 
-@TestBaseDir("wpt/url")
+@TestBaseDir(
+    value = "wpt/url",
+    // Needs the Fetch `Request` and `Response` classes, which are not
+    // implemented yet.
+    exclude = {
+      // Not implemented yet.
+      // Needs the WebIDL test harness, which is not wired up yet.
+      "idlharness.any.js",
+      "urlencoded-parser.any.js"
+    })
 public class UrlTest extends BaseTest {
   @Override
   protected void initializeLauncher(WPTTestLauncher launcher) {

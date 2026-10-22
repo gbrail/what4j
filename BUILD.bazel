@@ -65,7 +65,8 @@ filegroup(
 )
 
 # Supported JavaScript test scripts, to be preprocessed with Babel.
-# Various tests will pull these preprocessed directories.
+# Various tests will pull these preprocessed directories and locally
+# exclude tests that do not pass.
 filegroup(
     name = "wpt_js_files",
     srcs = glob(
@@ -88,42 +89,6 @@ filegroup(
         ],
         exclude = [
             "wpt/common/empty.js",
-            # Needs the WebIDL test harness (wpt/resources/idlharness.js,
-            # WebIDLParser.js), which is not wired up yet.
-            "wpt/url/idlharness.any.js",
-            # Needs the Fetch `Request` and `Response` classes, which are not
-            # implemented yet.
-            "wpt/url/urlencoded-parser.any.js",
-            # Duplicate coverage of the non-HTTPS URLPattern tests.
-            "wpt/urlpattern/*.https.any.js",
-            # Tentative URLPattern APIs are not implemented yet.
-            "wpt/urlpattern/*tentative*",
-            # Needs the WebIDL test harness (wpt/resources/idlharness.js,
-            # WebIDLParser.js), which is not wired up yet.
-            "wpt/streams/idlharness.any.js",
-            # Needs async generator support, which Babel leaves untranspiled
-            # and the pinned Rhino build cannot parse.
-            "wpt/streams/readable-streams/async-iterator.any.js",
-            "wpt/streams/readable-streams/from.any.js",
-            # Needs a GC trigger hook (wpt/common/gc.js), which is not
-            # available in Rhino.
-            "wpt/streams/readable-streams/garbage-collection.any.js",
-            "wpt/streams/writable-streams/garbage-collection.any.js",
-            # Not passable by a pure-JS implementation: the pipe loop
-            # cannot defer the chunk-to-write transition without
-            # Promise.prototype.then, which the test patches. The
-            # standard's reference implementation excludes it too
-            # (whatwg/streams#1243).
-            "wpt/streams/piping/general-addition.any.js",
-            # One test needs readable byte streams (type: "bytes"),
-            # which are not implemented yet.
-            "wpt/streams/piping/abort.any.js",
-            # The tee() and pipeTo() tests that patch Promise.prototype.then
-            # require promise reactions to be registered without calling the
-            # (patched) then method, which a pure-JS implementation cannot do.
-            "wpt/streams/readable-streams/patched-global.any.js",
-            # Tentative ReadableStream APIs are not implemented yet.
-            "wpt/streams/readable-streams/owning-type*",
         ],
     ),
 )
