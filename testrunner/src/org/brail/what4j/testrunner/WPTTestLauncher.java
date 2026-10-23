@@ -132,6 +132,8 @@ public class WPTTestLauncher {
     var tracker = new ResultTracker();
     // Run each test suite in a separate scope to prevent cross-contamination.
     var scope = initializeScope(cx, tracker);
+    var timers = new MinimalTimers();
+    timers.init(scope);
 
     cx.suspendMicrotaskProcessing();
     cx.evaluateString(scope, PRE_HARNESS_SCRIPT, "pre_harness.js", 1, null);
@@ -160,6 +162,20 @@ public class WPTTestLauncher {
     }
 
     cx.resumeMicrotaskProcessing();
+
+    // Run pending timers, giving each one its own turn and draining the microtask
+    // queue between turns, as an event loop would. Stop once the harness has
+    // reported completion (or the script threw); any timers still pending then are
+    // abandoned, as if the page were unloaded.
+    try {
+      while (!tracker.isComplete() && timers.run(cx, scope)) {
+        cx.processMicrotasks();
+      }
+    } catch (RhinoException e) {
+      // An uncaught exception in a timer callback fails the file, like an
+      // uncaught script exception does.
+      tracker.trackScriptException(e);
+    }
 
     return tracker;
   }

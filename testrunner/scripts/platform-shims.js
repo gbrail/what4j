@@ -7,42 +7,9 @@ var GLOBAL = {
     }
 };
 
-// A minimal setTimeout/clearTimeout.
-//
-// There is no event loop in this environment: the test harness runs the
-// test script, then drains the microtask queue exactly once. A browser's
-// setTimeout(cb, 0) fires as a macrotask, i.e. after the current
-// microtask queue (and the microtasks it enqueues) has drained, which
-// gives in-flight promise chains a chance to settle before cb runs. The
-// approximation below fires cb after a fixed number of microtask hops
-// (at least 30), which reproduces that ordering for the WPT suites run
-// here without stalling the single drain. The test harness uses the
-// global setTimeout when present (otherwise it falls back to its own
-// one-microtask fake_set_timeout). The first hop runs synchronously, so
-// the callback fires after (hops - 1) queued microtasks.
-var __timers = [];
-var setTimeout = function (callback, delay) {
-    var timer = { cancelled: false };
-    __timers.push(timer);
-    var hops = Math.max(30, Math.ceil(Number(delay) || 0));
-    var p = Promise.resolve();
-    (function hop() {
-        if (timer.cancelled) {
-            return;
-        }
-        if (hops-- > 0) {
-            p.then(hop);
-        } else {
-            callback();
-        }
-    })();
-    return timer;
-};
-var clearTimeout = function (timer) {
-    if (timer) {
-        timer.cancelled = true;
-    }
-};
+// setTimeout and clearTimeout are provided by the Java test harness
+// (see MinimalTimers), which fires pending timers with real wall-clock
+// deadlines once the test script and the first microtask drain are done.
 
 var __domExceptionCodes = {
     IndexSizeError: 1,

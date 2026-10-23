@@ -97,6 +97,14 @@ public class ResultTracker {
     };
   }
 
+  /**
+   * Return true once the harness has reported a final status, or a script exception was tracked.
+   * Any pending timers are irrelevant after this point.
+   */
+  public boolean isComplete() {
+    return finalStatus != FinalStatus.NONE;
+  }
+
   /** Return true only if harness ran successfully and all tests passed. */
   public boolean success() {
     if (finalStatus != FinalStatus.OK && finalStatus != FinalStatus.NONE) {

@@ -40,6 +40,21 @@ junit5_test(
 )
 
 junit5_test(
+    name = "timers_test",
+    srcs = ["test/org/brail/what4j/testrunner/tests/TimersTest.java"],
+    data = [
+        ":testdata",
+    ],
+    test_class = "org.brail.what4j.testrunner.tests.TimersTest",
+    deps = [
+        ":testrunner",
+        "@bazel_tools//tools/java/runfiles",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@rhino//rhino",
+    ],
+)
+
+junit5_test(
     name = "base_test_smoke_test",
     srcs = ["test/org/brail/what4j/testrunner/tests/BaseTestSmokeTest.java"],
     data = [

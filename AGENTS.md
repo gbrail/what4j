@@ -114,11 +114,15 @@ Rhino actually supports. Verified against the pinned commit:
 - Java interop: the `Packages`/`java` globals are NOT available (the context
   uses `initSafeStandardObjects`). To call Java, add a bridge object on the
   scope from Java (see the Java bridge concept above).
-- Not available: DOM, `atob`/`btoa`, `setTimeout`/`queueMicrotask`, `fetch`
+- Not available: DOM, `atob`/`btoa`, `queueMicrotask`, `fetch`
   (the testrunner installs a minimal one), `structuredClone`/`DOMException`/
   `FormData` (the testrunner installs minimal shims in
   `testrunner/scripts/platform-shims.js` — extend that file if a WPT test
-  needs another platform object). `TextEncoder`/`TextDecoder` are available
+  needs another platform object). `setTimeout`/`clearTimeout` are provided
+  by the testrunner (`MinimalTimers`), with real wall-clock deadlines: the
+  harness runs pending timers after the test script and the first microtask
+  drain, interleaving microtask processing between timer firings.
+  `TextEncoder`/`TextDecoder` are available
   from the Encoding module, but only the subset implemented by
   `core/scripts/encoding.js` and the Java `Encoding` binding.
 - `let`/`const` have correct block scoping on the pinned build and are
